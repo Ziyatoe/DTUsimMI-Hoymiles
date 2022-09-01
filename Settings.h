@@ -49,8 +49,8 @@ bool MI300  = 0;     //<<<<<<<<<<<< choose which model of Hoymiles MI microinver
 bool MI600  = 0;     //choose this for TSUN TSOL-M800 also
 bool MI1500 = 1;
 #define NRofPV  3   //<<<<<<<<<<<< number of PV panels in use (connected) 1-4. (not the number of WR-ports)
-                    //assume the ports are connected on order from 1 to 4
-                    //we to know how many PVs are really connected to WR.
+                    //assume the ports are connected in order from 1 to 4
+                    //we have to know how many PVs are really connected to WR.
                     //if we know it, we dont have to wait of all ports!
 
 // Webserver ..................................,,,,,,...........................................
