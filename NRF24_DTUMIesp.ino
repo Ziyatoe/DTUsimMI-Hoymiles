@@ -73,7 +73,7 @@ static Serial_header_t SerialHdr;
 static uint16_t lastCRC;
 static uint16_t crc;
 
-static uint8_t channels[] = {3,23, 40, 61, 75};   //{1, 3, 6, 9, 11, 23, 40, 61, 75}
+static uint8_t channels[] = {3, 23, 40, 61, 75};   //{1, 3, 6, 9, 11, 23, 40, 61, 75}
 static uint8_t TxChId = 0;
 static uint8_t RxChId = 0;                         // fange mit 3 an
 static uint8_t TxCH   = channels[TxChId];
@@ -355,7 +355,28 @@ void setup(void) {
   UpdateMqttTick = millis() + 200;
   if (WITHWIFI)
       STARTTIME=(String)getDateStr(getNow())+" "+(String)getTimeStr(getNow());
-
+  
+  uint64_t sn = SerialWR;
+  longlongasbytes llsn;
+  llsn.ull = sn;
+  if(llsn.bytes[5] == 0x10) {
+  switch(llsn.bytes[4]) {
+    case 0x21: 
+        { MI300 = 1; MI600 = 0; MI1500 = 0; 
+        if (NRofPV==0) { NRofPV = 1; } 
+        break; }
+    case 0x41: 
+        { MI600 = 1; MI300 = 0; MI1500 = 0; 
+        if (NRofPV==0) { NRofPV = 2; } 
+        break; }
+    case 0x61: 
+        { MI1500 = 1; MI600 = 0; MI300 = 0; 
+        if (NRofPV==0) { NRofPV = 4; }
+        break; }
+  }
+  MAXPOWER = NRofPV * PVPOWER;   
+  MINPOWER = int(MAXPOWER / 10);
+  }
   if (MI300) strcpy(MIWHAT,"MI-300");
   if (MI600) strcpy(MIWHAT,"MI-600");
   if (MI1500) strcpy(MIWHAT,"MI-1500");

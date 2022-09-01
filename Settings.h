@@ -17,7 +17,7 @@ Alle Einstellungen sind in Settings.h UND secrets.h !!
 // Hardware configuration, CHECK THIS OUT with your board !!!!!!!!!!!!!!!!!!!!!!!!!!
 // ESP8266 PIN Setting====================================================================================
 #ifdef ESP8266
-    #define RF1_CE_PIN  (D2) //(D2)
+    #define RF1_CE_PIN  (D4) //(D2)
     #define RF1_CS_PIN  (D8) //(D8)
     #define RF1_IRQ_PIN (D3)
 //GPIO0  D3 -> IRQ
@@ -48,13 +48,13 @@ int WR_LIMITTED     = 0;    //fixed limiting in Watt. if you dont want fixed lim
 bool MI300  = 0;     //<<<<<<<<<<<< choose which model of Hoymiles MI microinverter
 bool MI600  = 0;     //choose this for TSUN TSOL-M800 also
 bool MI1500 = 1;
-#define NRofPV  3   //<<<<<<<<<<<< number of PV panels in use (connected) 1-4. (not the number of WR-ports)
+int  NRofPV = 0;    //<<<<<<<<<<<< number of PV panels in use (connected) 1-4. (0 to set automatically to the number of WR-ports)
                     //assume the ports are connected in order from 1 to 4
                     //we have to know how many PVs are really connected to WR.
                     //if we know it, we dont have to wait of all ports!
 
 // Webserver ..................................,,,,,,...........................................
-IPAddress ROUTER = IPAddress(192,168,1,1);       // your routers IP???
+IPAddress ROUTER = IPAddress(192,168,2,1);       // your routers IP???
 #define WEBSERVER_PORT      80
 
 // Time Server .............................,,,,................................................
@@ -62,7 +62,7 @@ IPAddress ROUTER = IPAddress(192,168,1,1);       // your routers IP???
 //#define TIMESERVER_NAME "fritz.box"
 
 // MQTT ........................................................................................
-const char MQTTbroker[] = "192.168.1.11";
+const char MQTTbroker[] = "192.168.2.72";
 int        MQTTport     = 1883;
 char       MQTTclientid[] = "MYDTU";
 // END OF YOUR CONFIGURATION ===================================================================
