@@ -319,7 +319,7 @@ void setup(void) {
   DEBUG_OUT.printf("DTU-Simulation for MI \r\n");
   DEBUG_OUT.printf(".....................\r\n");
   DEBUG_OUT.printf("Begin Setup  wait....\r\n");
-
+  if (WR_LIMITTED) ZEROEXP = 1;
   delay(2000);
   #ifdef ESP8266
     if (WITHWIFI){

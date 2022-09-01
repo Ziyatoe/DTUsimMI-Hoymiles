@@ -7,7 +7,7 @@
 #include "Debug.h"
 #ifdef ESP8266
   #include <ESP8266WiFi.h>
-  #include <Pinger.h>       // von url=https://www.technologytourist.com   
+  //#include <Pinger.h>       // von url=https://www.technologytourist.com
 #endif
 
 
@@ -17,7 +17,7 @@ String SSID = "";         // bestes WLan
 uint8_t WIFIConnect = 5;//not connect 0 else 5
 
 //Pinger pinger;
-IPAddress ROUTER = IPAddress(192,168,1,1);
+//IPAddress ROUTER = IPAddress(192,168,1,1);
 
 // Prototypes
 time_t getNow ();
