@@ -1,28 +1,33 @@
-/* die orig. SW ist vom Hubi, wurde von mir(Ziyat T.) für den MI-WR abgeaendert.
-Getestet auf ESP8266/ArduinoUNO.
-https://www.mikrocontroller.net/topic/525778
-https://github.com/hm-soft/Hoymiles-DTU-Simulation
-----------------------------------------
-Alle Einstellungen sind in Settings.h UND secrets.h !!
-----------------------------------------
+/*
+This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverters over RF(NRF24)
+Based on the orig. SW from Hubi's earlier stage from his (https://github.com/hm-soft/Hoymiles-DTU-Simulation)
+recoded and expanded  for the Hoymiles microinverter family MI, by Ziyat T.
+
+Project initiated here: https://www.mikrocontroller.net/topic/525778
+Do not expect any quality from this SW!!!
+
+------------------------------------------------------------------------------------------------------------------------
+Configuration are  in Settings.h and secrets.h !!
+------------------------------------------------------------------------------------------------------------------------
 */
-#define VERSION "V0.1.6"
+
+#define VERSION "V0.1.9"
 
 
 #include <stdint.h>
-//#include <printf.h>
-
 #include <Arduino.h>
 #include <SPI.h>
 #include <RF24.h>
 #include <RF24_config.h>
-#include "printf.h"
+//#include "printf.h"
 #include "Settings.h"
 #include "CircularBuffer.h"
 #include "hm_crc.h"
 #include "hm_packets.h"
 #include "Debug.h"
 #include "Sonne.h"
+#include "ModWebserver.h"
+#include "Globals.h"
 
 #ifdef ESP8266
   #include "wifi.h"
@@ -53,7 +58,7 @@ Alle Einstellungen sind in Settings.h UND secrets.h !!
 
 static HM_Packets     hmPackets;
 static uint64_t       UpdateTxMsgTick=0;
-static uint64_t       UpdateMqttTick=0;
+static uint64_t       UpdateIPServicesTick=0;
 static uint64_t       UpdateZeroExpTick=0;
 
 static uint64_t RxAckTimeOut = 100;   // at begin, milli sek. wenn zu lange nichts kommt, müssen wir wechseln;
@@ -64,7 +69,7 @@ static uint64_t timeCheckPV = 100;
 // If more than one RF24 unit is used the another CS pin than 10 must be used
 // This pin is used hard coded in SPI library
 
-static RF24 radio1 (RF1_CE_PIN, RF1_CS_PIN);
+static RF24 radioDTU (RF1_CE_PIN, RF1_CS_PIN);
 static NRF24_packet_t bufferData[PACKET_BUFFER_SIZE];
 static CircularBuffer<NRF24_packet_t> packetBuffer(bufferData, sizeof(bufferData) / sizeof(bufferData[0]));
 static Serial_header_t SerialHdr;
@@ -73,57 +78,21 @@ static Serial_header_t SerialHdr;
 static uint16_t lastCRC;
 static uint16_t crc;
 
-static uint8_t channels[] = {3,23, 40, 61, 75};   //{1, 3, 6, 9, 11, 23, 40, 61, 75}
-static uint8_t TxChId = 0;
+static uint8_t channels[] = {3,23, 40, 61, 75};    //{1, 3, 6, 9, 11, 23, 40, 61, 75}
+//2400 to 2525 MHz (MegaHz). The nRF24L01 channel spacing is 1 Mhz which gives 125 possible channels numbered 0 .. 124
+static uint8_t TxChId = 0;                         // fange mit 3 an
 static uint8_t RxChId = 0;                         // fange mit 3 an
 static uint8_t TxCH   = channels[TxChId];
 static uint8_t RxCH   = channels[RxChId];
-
-
-#ifdef ESP8266
-    char * getChannelName (uint8_t i);
-    static const int    ANZAHL_VALUES         = 8;
-    static float        VALUES[4][ANZAHL_VALUES] = {};
-    static const char   *CHANNEL_NAMES[ANZAHL_VALUES]
-       = {"PanelNr   ",
-          "P [W]  ",
-          "Udc [V]",
-          "Idc [A]",
-          "E [Wh] ",
-          "Status ",
-          "FCnt   ",
-          "FCode  "};
-#endif
-//static const uint8_t DIVISOR[ANZAHL_VALUES] = {1,1,1,1,1,1,1,1,1,1,1,1};
 static const char BLANK = ' ';
-
-
-static bool isIrq = false;
+static const String LON  = "\033[1m";
+static const String LOFF = "\033[0m";
+static bool isRxIrq = false;
 static char CHANNELNAME_BUFFER[15]="";
-
-
-static int SerCmd=0;
+static int SerCmd = 0;
 static char cStr[100];
-//char WRdata[120];
-static float  U_DC =0;
-static float  I_DC =0;
-static float  U_AC =0;
-static float  F_AC =0;
-static float  P_DC =0;
-static float  Q_DC =0;
-static float  TEMP =0;
-
-static int  STAT =0;
-static int  FCNT = 0;
-static int  FCODE = 0;
-static uint8_t  PV = 0;
-static uint16_t PMI = 0;
-//uint16_t P_DSU = 0;
-static uint16_t LIM=0; //for ModWebserver
-static uint8_t DataOK=0;
+static bool DataOK = false;
 static uint8_t pvCnt[4]={0,0,0,0};
-
-
 static float TotalP[5]={0,0,0,0,0}; //0 is total power, 1-4 are 4 PV power
 
 #ifdef ESP8266
@@ -131,20 +100,27 @@ static float TotalP[5]={0,0,0,0,0}; //0 is total power, 1-4 are 4 PV power
   //#include "Sonne.h"
 #endif
 
-//MI-WR Data
-uint8_t sendBuf[MAX_RF_PAYLOAD_SIZE];
 
-
-//read from Serial for testing
+static uint8_t sendBuf[MAX_RF_PAYLOAD_SIZE]; //MI-WR TxData
 static char SerialIn[10]="";
+static bool TxLimitSts = false; //quiet at the begin
+static uint16_t Limit=0; //zeroexport power limit in %
 
-static uint8_t WRInfo=1;
-
-//String mStr = "";     // empty string
-
-static bool TxLimitSts = false; //quiet
-static uint16_t Limit=0; //setup
-//static uint16_t OldLimit = Limit;
+typedef struct MIWR_t{ // define MI type
+  char name[15];
+  uint8_t NrPorts;
+  int portP;
+  };
+#define MI300  0
+#define MI600  1
+#define MI1500 2
+static MIWR_t MItype[3]={{"MI300",1,300}, // define MI type [NRPV,Modell,PortPower], bu sure of index!!
+                         {"MI600",2,300},
+                         {"MI1500",4,375}};
+static uint8_t WhichMI = 0;//index inververter model
+static int MAXPOWER = 0;
+static int MINPOWER = 0;
+static int MIportPower=0;
 
 
 #ifdef ESP8266
@@ -178,22 +154,24 @@ bool RFRxPacket(void){
  bool sts=false;
 
 // Loop until RX buffer(s) contain no more packets.
-  while (radio1.available(&pipe)) {
+  while (radioDTU.available(&pipe)) {
+    radioDTU.stopListening();//:::::::::::::::0
+
     //DEBUG_OUT.printf("RFRxPacket someting on pipe %i", pipe);
     if (!packetBuffer.full()) {
       //DEBUG_OUT.printf(" reading %i", i++);
       NRF24_packet_t *p = packetBuffer.getFront();
-      if (!p) DEBUG_OUT.printf("RFRxPacket packetbuffer getFront full\r\n");
+      if (!p) DEBUG_OUT.printf("%sRFRxPacket:%s packetbuffer getFront full\r\n",LON,LOFF);
       p->timestamp = micros(); // Micros does not increase in interrupt, but it can be used.
       p->packetsLost = lostPacketCount;
-      radio1.setChannel(RxCH);//setChannel(DEFAULT_RECV_CHANNEL);
-      uint8_t packetLen = radio1.getPayloadSize();
+      radioDTU.setChannel(RxCH); //:::::::::::::::1
+      uint8_t packetLen = radioDTU.getPayloadSize();
       if (packetLen > MAX_RF_PAYLOAD_SIZE)
         packetLen = MAX_RF_PAYLOAD_SIZE;
-      radio1.read(p->packet, packetLen);
+      radioDTU.read(p->packet, packetLen);
       //DEBUG_OUT.println(F(" payload ok"));
       packetBuffer.pushFront(p);
-      if (!p) DEBUG_OUT.printf("RFRxPacket packetbuffer pushFront full\r\n");
+      if (!p) DEBUG_OUT.printf("%sRFRxPacket:%s packetbuffer pushFront full\r\n",LON,LOFF);
       else sts = true;
       lostPacketCount = 0;
 
@@ -202,13 +180,17 @@ bool RFRxPacket(void){
       // Buffer full. Increase lost packet counter.
       if (lostPacketCount < 255){
          lostPacketCount++;
-         DEBUG_OUT.printf("RFRxPacket lost packet, full buffer\r\n");
+         DEBUG_OUT.printf("%sRFRxPacket%s: lost packet, MI goes down !!\r\n",LON,LOFF);
          }
-      DEBUG_OUT.printf("RFRxPacket full buffer\r\n");
+      DEBUG_OUT.printf("%sRFRxPacket%s: full buffer\r\n",LON,LOFF);
       sts = false;
       }
-    radio1.flush_rx();// Flush buffer to drop the packet.
-    }//while
+    radioDTU.flush_rx();// Flush buffer to drop the packet.
+
+    radioDTU.startListening(); //:::::::::::::::2
+
+  }//while
+  isRxIrq = false;
   return sts;
  // DEBUG_OUT.println(F("RFRxPacket END"));
 }//----RFRxPacket-----------------------------------------------------------------------------------
@@ -219,33 +201,32 @@ void ICACHE_RAM_ATTR RFirqHandler() {
 void RFirqHandler() {
 #endif
 //---------------------------------------------------------------------------------------
-    radio1.maskIRQ(true, true, true);
+
     DISABLE_EINT;
+    radioDTU.maskIRQ(true, true, true); //disable irq if DISABLE_EINT doesnt work ;-)
 
     bool tx_ok, tx_fail, rx_ready;                // declare variables for IRQ masks
-    radio1.whatHappened(tx_ok, tx_fail, rx_ready); // get values for IRQ masks
+    radioDTU.whatHappened(tx_ok, tx_fail, rx_ready); // get values for IRQ masks
     // whatHappened() clears the IRQ masks also. This is required for
     // continued TX operations when a transmission fails.
     // clearing the IRQ masks resets the IRQ pin to its inactive state (HIGH)
 
     if (rx_ready){
-        //DEBUG_OUT.printf ("nrf IRQ Rx ok %i\r\n", rx_ready);
-        if (RFRxPacket())
-            RFAnalyse();
-        isIrq = true;
+        isRxIrq = true;
+        //DEBUG_OUT.printf ("nrf rx ok %i\r\n", tx_ok);
+        RFRxPacket();
+        //DEBUG_OUT.printf ("nrf rx packet ok %i\r\n", tx_ok);
         }
-     else DEBUG_OUT.printf ("nrf IRQ Rx not ok %i\r\n", rx_ready);
-
-    if (tx_ok) DEBUG_OUT.printf ("nrf Tx ok %i ", tx_ok);
-    //else DEBUG_OUT.printf ("nrf Tx ok ?? %i ", tx_ok);
-    if (tx_fail) DEBUG_OUT.printf ("nrf Tx fail %i ", tx_fail);
-    //else DEBUG_OUT.printf ("nrf Tx fail ?? %i ", tx_fail);
+    if (tx_ok) DEBUG_OUT.printf ("nrf Tx ok %i\r\n", tx_ok);
+    //else DEBUG_OUT.printf ("nrf Tx ok ?? %i\r\n", tx_ok);
+    if (tx_fail) DEBUG_OUT.printf ("nrf Tx fail %i\r\n", tx_fail);
+    //else DEBUG_OUT.printf ("nrf Tx fail ?? %i\r\n", tx_fail);
 
 
 //  if (tx_fail)            // if TX payload failed
-//        radio1.flush_tx(); // clear all payloads from the TX FIFO
+//        radioDTU.flush_tx(); // clear all payloads from the TX FIFO
 
-  radio1.maskIRQ(true, true, false);
+  radioDTU.maskIRQ(true, true, false);//Configuring IRQ pin to reflect data_ready events
   ENABLE_EINT;
 
 }//---RFirqHandler-------------------------------------------------------------------
@@ -254,13 +235,13 @@ void   setRxPipe(void){
 //---------------------------------------------------------------------------------------
 
   if (SNIFFER){
-     radio1.openReadingPipe(0, 0x00aa);
-     radio1.openReadingPipe(1, 0x0055);
+     radioDTU.openReadingPipe(0, 0x00aa);
+     radioDTU.openReadingPipe(1, 0x0055);
      }
   else {
-      //radio1.openReadingPipe(0, DTU_RADIO_ID);
-      radio1.openReadingPipe(1, DTU_RADIO_ID);
-      //radio1.openReadingPipe(1, WR1_RADIO_ID);
+      //radioDTU.openReadingPipe(0, DTU_RADIO_ID);
+      radioDTU.openReadingPipe(1, DTU_RADIO_ID);
+      //radioDTU.openReadingPipe(1, WR1_RADIO_ID);
       }
 
 }//----setRxPipe----------------------------------------------------------------------
@@ -268,29 +249,28 @@ void   setRxPipe(void){
 static void RFConfig(void) {
 //---------------------------------------------------------------------------------------
 
-  while (!radio1.begin()) {
+  while (!radioDTU.begin()) {
     DEBUG_OUT.printf("Radio hardware is not responding!!\r\n");
     delay(1000);
     }
 
-  radio1.setAutoAck(0);
-  radio1.setRetries(0, 0);
+  radioDTU.setAutoAck(0);
+  radioDTU.setRetries(0, 0);
 
-  radio1.setDataRate(DEFAULT_RF_DATARATE);
-  radio1.disableCRC();
+  radioDTU.setDataRate(DEFAULT_RF_DATARATE);
+  radioDTU.disableCRC();
   // Use lo PA level, as a higher level will disturb CH340 DEBUG_OUT usb adapter
-  radio1.setPALevel(PA_LEVEL);
-  radio1.setPayloadSize(MAX_RF_PAYLOAD_SIZE);
-  radio1.setAddressWidth(5);
+  radioDTU.setPALevel(PA_LEVEL);
+  radioDTU.setPayloadSize(MAX_RF_PAYLOAD_SIZE);
+  radioDTU.setAddressWidth(5);
 
   setRxPipe();
   // We want only RX irqs,
   if(INTERRUPT){
     // maskIRQ args = "data_sent", "data_fail", "data_ready"
-    //Configuring IRQ pin to reflect data_ready events
-    radio1.maskIRQ(true, true, false);
+    radioDTU.maskIRQ(true, true, false);//Configuring IRQ pin to reflect data_ready events
     //Configuring IRQ pin to reflect all events
-    //radio1.maskIRQ(false, false, false);
+    //radioDTU.maskIRQ(false, false, false);
     // disable IRQ masking for this step
     //radio.maskIRQ(true, true, true);
 
@@ -304,40 +284,85 @@ static void RFConfig(void) {
     addr >>= 8;
     }
 
-  radio1.printDetails();
+  radioDTU.printDetails();
   delay(1000);
   UpdateTxMsgTick = millis() + 1000;
 }//--RFConfig-------------------------------------------------------------------------------------
+
+
+bool GetMIModel(void){  //probably we might need it more than once
+//---------------------------------------------------------------------------------------
+  uint64_t sn = SerialWR;
+  longlongasbytes llsn;
+  llsn.ull  = sn;
+
+  DEBUG_OUT.printf("You defined inverter serial number as: %x%x%x!!!\r\n",llsn.bytes[5],llsn.bytes[4],llsn.ull);
+
+  if(llsn.bytes[5] == 0x10) {
+      switch(llsn.bytes[4]) {
+        case 0x21:  WhichMI = MI300;  //MI300
+             break;
+        case 0x41:  WhichMI = MI600;  //MI600
+             break;
+        case 0x61:  WhichMI = MI1500;  //MI1500
+             break;
+        default:
+             DEBUG_OUT.printf("Inverter model not known!!! check serial number\r\n");
+             return false;
+        }
+
+      strcpy(MIWHAT,MItype[WhichMI].name);
+      MIportPower = MItype[WhichMI].portP;
+      if (NRofPV==0)
+          NRofPV = MItype[WhichMI].NrPorts;  //if NRofPV not defined in settings.h, we set NRofPV here
+
+      MAXPOWER = MItype[WhichMI].NrPorts * MIportPower; // rated power of inverter
+      MINPOWER = int(MAXPOWER / 10); //below 10%, the inverter will be shut down
+      DEBUG_OUT.printf("Inverter defined as %s, MAXPOWER %i, MINPOWER %i\r\n",MIWHAT, MAXPOWER,MINPOWER);
+      return true;
+      }
+  else{
+      DEBUG_OUT.printf("Inverter model not known!!! check serial number\r\n");
+      return false;
+      }
+
+}//---GetMIModel------------------------------------------------------------------------------------
 
 void setup(void) {
 //---------------------------------------------------------------------------------------
 
   DEBUG_OUT.begin(SER_BAUDRATE);
-
+  delay(5000);
   DEBUG_OUT.flush();
   DEBUG_OUT.printf(".....................\r\n");
-  DEBUG_OUT.printf("DTU-Simulation for MI \r\n");
+  DEBUG_OUT.printf("Hoylmoly DTU for MI \r\n");
   DEBUG_OUT.printf(".....................\r\n");
   DEBUG_OUT.printf("Begin Setup  wait....\r\n");
-  if (WR_LIMITTED) ZEROEXP = 1;
-  delay(2000);
+
+  while (! GetMIModel())
+    delay (4000);
+
+  if (CHECK_CRC)   DataOK = true;
+  if (WR_LIMITTED) ZEROEXP = true;
+
   #ifdef ESP8266
     if (WITHWIFI){
       if(!SNIFFER){
           while (!setupWifi())
-            DEBUG_OUT.printf("Setup Wifi.......\r\n");
+            DEBUG_OUT.printf("[WiFi] Setup, try again..\r\n");
 
-          DEBUG_OUT.printf("Setup clock .....\r\n");
           setupClock();
-          DEBUG_OUT.printf("Setup mqtt ......\r\n");
-          setupMQTT();
-          DEBUG_OUT.printf("Setup www .......\r\n");
- //         setupWebServer();
-                 // setupUpdateByOTA();
+          DEBUG_OUT.printf("[MQTT] Setup .................\r\n");
+          isMQTT = setupMQTT();
+          DEBUG_OUT.printf("[HTTP] Setup .................\r\n");
+          setupWebServer();
+          #ifdef WITH_OTA
+            setupUpdateByOTA();
+          #endif
           calcSunUpDown (getNow());
-          istTag = isDayTime(0);
-          DEBUG_OUT.printf ("Es ist %s \r\n",(istTag?"Tag":"Nacht"));
-                //hmPackets.SetUnixTimeStamp (getNow());
+          is_Day = isDayTime(0);
+          //DEBUG_OUT.printf ("it is %s \r\n",(is_Day?"day time":"night time"));
+          //hmPackets.SetUnixTimeStamp (getNow());
          }
       }
   #else
@@ -345,38 +370,36 @@ void setup(void) {
   #endif
   delay(2000);
   //---NRF--------------------------
-  DEBUG_OUT.printf("Setup NRF......\r\n");
+  DEBUG_OUT.printf("[NRF] Setup .................\r\n");
   // Configure nRF IRQ input
   if(INTERRUPT)
     pinMode(RF1_IRQ_PIN, INPUT);
   RFConfig();
 
   delay(1000);
-  UpdateMqttTick = millis() + 200;
+  UpdateIPServicesTick = millis() + 200;
   if (WITHWIFI)
       STARTTIME=(String)getDateStr(getNow())+" "+(String)getTimeStr(getNow());
 
-  if (MI300) strcpy(MIWHAT,"MI-300");
-  if (MI600) strcpy(MIWHAT,"MI-600");
-  if (MI1500) strcpy(MIWHAT,"MI-1500");
-  DEBUG_OUT.printf("Microinverter is %s, starting at ",MIWHAT);
-  DEBUG_OUT.println(STARTTIME); //cant print (String) with printf???
-  TxLimitSts=0;
+  DEBUG_OUT.printf("\r\n\r\nMicroinverter is %s%s with %i PV's%s, starting at ",LON,MIWHAT,NRofPV,LOFF);
+  DEBUG_OUT.println(STARTTIME); //cant print (String)STARTTIME with printf???
+  TxLimitSts = false;
 
-  DEBUG_OUT.printf("Version %s \r\n",VERSION);
-  DEBUG_OUT.printf("Setup finished --------Type 1  for HELP-----------\r\n");
-
-
+  DEBUG_OUT.printf("Hoylmoly Version %s \r\n",VERSION);
+  DEBUG_OUT.printf("Setup finished ------------------------------------------------------\r\n\r\n");
+  DEBUG_OUT.printf("%sType 1 and return for HELP%s\r\n\r\n",LON,LOFF);
+  DEBUG_OUT.printf("%sif you do not receive anything, change PA_LEVEL first%s\r\n\r\n",LON,LOFF);
+  SerCmd = 17 ;//get WR info first
 }//---setup------------------------------------------------------------------------------------
 
 
 static void RFTxPacket(uint64_t dest, uint8_t *buf, uint8_t len) {
 //----------------------------------------------------------------------------------------------------
 
-  radio1.flush_tx();
+  radioDTU.flush_tx();
 
   if (DEBUG_TX_DATA) {
-      DEBUG_OUT.printf("Send... CH%02i",TxCH);
+      DEBUG_OUT.printf("RFTxPacket: CH%02i ",TxCH);
        //packet buffer to output
       for (uint8_t i = 0; i < len; i++){
         if (buf[i]==0){DEBUG_OUT.printf("%s","00");}
@@ -384,32 +407,32 @@ static void RFTxPacket(uint64_t dest, uint8_t *buf, uint8_t len) {
              DEBUG_OUT.printf("%x",buf[i]);
              }
         }
-      if (!DEBUG_TX_DATA) DEBUG_OUT.println();
+      DEBUG_OUT.println();
       }
   //if(INTERRUPT) DISABLE_EINT;//?????
-  radio1.stopListening(); //***************************************
-  radio1.setCRCLength(RF24_CRC_16);
-  radio1.enableDynamicPayloads();
-  radio1.setAutoAck(true);
-  radio1.setRetries(3, 15); //5,15
-  radio1.openWritingPipe(dest);
-  radio1.setChannel(TxCH);
+  radioDTU.stopListening(); //:::::::::::::::0
+  radioDTU.setCRCLength(RF24_CRC_16);
+  radioDTU.enableDynamicPayloads();
+  radioDTU.setAutoAck(true);
+  radioDTU.setRetries(3, 15); //5,15
+  radioDTU.openWritingPipe(dest);
+  radioDTU.setChannel(TxCH);
   //if(INTERRUPT) ENABLE_EINT;//?????
-  uint8_t res = radio1.write(buf, len);
-  if (DEBUG_TX_DATA)
-     DEBUG_OUT.printf("..... res: %i\r\n", res);
+  uint8_t res = radioDTU.write(buf, len);
+  //if (DEBUG_TX_DATA)
+     //DEBUG_OUT.printf("..... res: %i\r\n", res);
 
-   //radio1.print_status(radio1.get_status());
+   //radioDTU.print_status(radioDTU.get_status());
 
   // Try to avoid zero payload acks (has no effect)
-  radio1.openWritingPipe(DUMMY_RADIO_ID);
-  radio1.setAutoAck(false);
-  radio1.setRetries(0, 0);
-  radio1.disableDynamicPayloads();
-  radio1.setCRCLength(RF24_CRC_DISABLED);
+  radioDTU.openWritingPipe(DUMMY_RADIO_ID);
+  radioDTU.setAutoAck(false);
+  radioDTU.setRetries(0, 0);
+  radioDTU.disableDynamicPayloads();
+  radioDTU.setCRCLength(RF24_CRC_DISABLED);
 
-  radio1.setChannel(RxCH);
-  radio1.startListening();
+  radioDTU.setChannel(RxCH); //:::::::::::::::1
+  radioDTU.startListening(); //:::::::::::::::2
 
 }//----RFTxPacket-------------------------------------------------------------------------------------------------------
 
@@ -418,7 +441,7 @@ void HopCH(void){
 
       if ( (millis() - timeLastAck) > RxAckTimeOut){  //hop RxCH when timeout RXack
          RxChId++;
-         if (RxChId >= sizeof(channels))// / sizeof(channels[0]) )
+         if (RxChId >= std::size(channels) )
            RxChId = 0;
          RxCH = channels[RxChId];
          timeLastAck = millis();
@@ -426,7 +449,7 @@ void HopCH(void){
          }
      //tx allways hopping
      TxChId++;
-     if (TxChId >= sizeof(channels))// / sizeof(channels[0]) )
+     if (TxChId >= std::size(channels) )
        TxChId = 0;
      TxCH = channels[TxChId];
 
@@ -437,12 +460,14 @@ void SerialCmdHandle(void){
 //----------------------------------------------------------------------------------------------------------------------
     switch (SerCmd){
         case 1:
-          DEBUG_OUT.printf("\r\n\r\n\r\n1: help\t\t2: Status\r\n");
-          DEBUG_OUT.printf("3:PA_LOW\t4:PA_HIGH\t5:PA_MAX\r\n");
-          DEBUG_OUT.printf("6:Sniffer\t7:ZeroEx\r\n");
-          DEBUG_OUT.printf("8:OnlyRX\t9:ShowTX\t13:ShowRX\r\n");
-          DEBUG_OUT.printf("10:Wifi\t\t11:CRC\t\t12:reboot\t14:IRQ\r\n");
-          DEBUG_OUT.printf("20:WRinfo\t30-39:RxAckTmo\t100-1999:limiting(W)\r\n\r\n\r\n");
+          DEBUG_OUT.printf("\r\n\r\n\r\n");
+          DEBUG_OUT.printf("1:help\t\t\t2:Status\r\n");
+          DEBUG_OUT.printf("3:PA_LOW\t\t4:PA_HIGH\t\t5:PA_MAX\r\n");
+          DEBUG_OUT.printf("6:Sniffer\t\t7:ZeroEx\t\t8:OnlyRX\r\n");
+          DEBUG_OUT.printf("9:ShowTX\t\t10:Wifi\t\t\t11:CRC\r\n");
+          DEBUG_OUT.printf("12:reboot\t\t13:ShowRX\t\t14:IRQ\r\n");
+          DEBUG_OUT.printf("15:LIMITabsORpr\t\t16:boot MI\t\t17:WRinfo\r\n");
+          DEBUG_OUT.printf("100-1999:limiting(W)\r\n\r\n\r\n"); //ToDo help
           SerCmd=0; //stop command
         break;
         case 2:
@@ -466,29 +491,33 @@ void SerialCmdHandle(void){
           DEBUG_OUT.printf("INTERRUPT \t%i\r\n",INTERRUPT);
           DEBUG_OUT.printf("CHECK_CRC \t%i\r\n",CHECK_CRC);
           DEBUG_OUT.printf("WITHMQTT \t%i\r\n",WITHMQTT);
-          DEBUG_OUT.printf("TIMEOUTRXACK \t%i msek\r\n\r\n",RxAckTimeOut);
-          DEBUG_OUT.print("MY IP "); DEBUG_OUT.println(PrintMyIP());DEBUG_OUT.println();//cant print (String) with printf???
+          DEBUG_OUT.printf("TIMEOUTRXACK \t%i msek\r\n",RxAckTimeOut);
+          DEBUG_OUT.printf("LIMITABSOLUT \t%i\r\n",LIMITABSOLUT);
+          #ifdef WITH_OTA
+            DEBUG_OUT.printf("WITH_OTA \t1\r\n");
+          #endif
+          DEBUG_OUT.print("MY IP \t"); DEBUG_OUT.println(PrintMyIP());DEBUG_OUT.println();//cant print (String) with printf???
           SerCmd=0; //stop command
         break;
         case 3:
            PA_LEVEL = RF24_PA_LOW;
-           radio1.setPALevel(PA_LEVEL);
+           radioDTU.setPALevel(PA_LEVEL);
            DEBUG_OUT.printf("RF24_PA_LOW\r\n");
-           radio1.printDetails();
+           radioDTU.printDetails();
            SerCmd=0; //stop command
         break;
         case 4:
           PA_LEVEL = RF24_PA_HIGH;
-          radio1.setPALevel(PA_LEVEL);
+          radioDTU.setPALevel(PA_LEVEL);
           DEBUG_OUT.printf("RF24_PA_HIGH\r\n");
-          radio1.printDetails();
+          radioDTU.printDetails();
           SerCmd=0; //stop command
         break;
         case 5:
            PA_LEVEL = RF24_PA_MAX;
-           radio1.setPALevel(PA_LEVEL);
+           radioDTU.setPALevel(PA_LEVEL);
            DEBUG_OUT.printf("RF24_PA_MAX\r\n");
-           radio1.printDetails();
+           radioDTU.printDetails();
            SerCmd=0; //stop command
         break;
         case 6:
@@ -517,8 +546,8 @@ void SerialCmdHandle(void){
               //if (WITHWIFI)  WITHWIFI = 0;
               //else  WITHWIFI = 1;
               DEBUG_OUT.printf("CMD Wifi %i\r\n",WITHWIFI);
-              setup();
               SerCmd=0; //stop command
+              setup();
         break;
         case 11:
               CHECK_CRC = (CHECK_CRC) ? 0 : 1;
@@ -536,19 +565,27 @@ void SerialCmdHandle(void){
         break;
         case 14:
               INTERRUPT = (INTERRUPT) ? 0 : 1;
-              setup();
               DEBUG_OUT.printf("CMD INTERRUPT %i\r\n",INTERRUPT);
+              setup();
               SerCmd=0; //stop command
         break;
 
-        case 31 ... 39: //set new RxAckTimeOut 1000,2000,3000,4000,5000 ....
-              RxAckTimeOut = (SerCmd-30)*1000;
-              DEBUG_OUT.printf("CMD TIMOACK %i\r\n",RxAckTimeOut);
+        case 15:
+              LIMITABSOLUT = (LIMITABSOLUT) ? 0 : 1;
+              DEBUG_OUT.printf("CMD LIMITABSOLUT %i\r\n",LIMITABSOLUT);
+              Limit = 0;
+              TxLimitSts = false;
               SerCmd=0; //stop command
         break;
-
+        case 16: //boot_mi (0x51) (55AA)  will be send in RF RFisTime2Send
+        break;
+        case 17: //wrinfo  0x0f           will be send in RF RFisTime2Send
+        break;
+        case 18 ... 99: // this are empty, until now
+        break;
+        case 100 ... 1999:  //100-1999 limit watt will be send in RF RFisTime2Send over SerCmd
+        break;
         default:
-        //there are other commands for Tx
         break;
         }
 
@@ -559,113 +596,119 @@ void RFisTime2Send (void) {
 //----------------------------------------------------------------------------------------------------------------------
   static uint8_t MIDataCMD = 0x36;   //begin with first PV
   static uint8_t MI600_DataCMD = 0x09 ;
-  static uint8_t telegram = 0;
+  static uint8_t telegram = 0; //this is the  number of timesharing for tx commands to inverter
   int32_t size = 0;
   uint64_t dest = WR1_RADIO_ID;
   uint8_t UsrData[10];
   char Cmd = 0;
 
-  if (millis() >= UpdateTxMsgTick) {
+  if (millis() >= UpdateTxMsgTick) { //is time to tx commands to inverter
     UpdateTxMsgTick += TXTIMER;
+    if (telegram > std::size(channels) )  telegram = 0; //reset telegram
 
-    if (telegram > sizeof(channels))    telegram = 0;
-
-    if (MI300) {        // 1 PV
-        MIDataCMD=0x09;
-        }
-    if (MI600){         // 2 PVs
-        if (MI600_DataCMD == 0x09) MI600_DataCMD=0x11; //flipflop
-        else if (MI600_DataCMD == 0x11) MI600_DataCMD=0x09;
-        MIDataCMD=MI600_DataCMD;
-        }
-    if (MI1500){        // 4 PVs
-        if (MIDataCMD > 0x0039) MIDataCMD= 0x0036;
-        }
-
-    switch(telegram) {
-      case 0:
-        //set SubCmd and  UsrData Limiting
-        if ((TxLimitSts) && (abs (GridPower) > TOLERANCE)) {        //Limitierung ????chek it again
-          Cmd=0x51;
-          DEBUG_OUT.printf("CMD:%03X CH:%i Sts:%4i Setting Limit:%i\r\n",Cmd, TxCH,TxLimitSts,Limit);
-          UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]=100;//0x0a;// 10% limit
-          UsrData[3]=((Limit*10) >> 8) & 0xFF;   UsrData[4]= (Limit*10)  & 0xFF;   //WR needs 1 dec= zB 100.1 W
-          size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,5);
-          //Limit=0; will be set after ack limiting
-          }
-        else {
-          TxLimitSts = 0;
-          UsrData[0]=0x0;//set SubCmd and  UsrData for data request
-          size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, MIDataCMD, UsrData,1);
-          }
+    switch (WhichMI){ //choose which inverter
+        case MI300: MIDataCMD=0x09; // (MI300) 1 PV
         break;
-      case 1:
-        switch (SerCmd){ //SrCmd Parts to send
-           case 20: //request WR info
+        case MI600: // (MI600)  2 PVs
+            if (MI600_DataCMD == 0x09) MI600_DataCMD=0x11; //flipflop
+            else if (MI600_DataCMD == 0x11) MI600_DataCMD=0x09;
+            MIDataCMD=MI600_DataCMD;
+        break;
+        case MI1500:// (MI1500) // 4 PVs
+            if (MIDataCMD > 0x0039) MIDataCMD= 0x0036;
+        break;
+        default:
+            DEBUG_OUT.printf("%sRFisTime2Send:%s Wrong inverter type!!\r\n",LON,LOFF);
+        break;
+    }
+
+    if (TxLimitSts) { //zeropower limiting
+      Cmd=0x51;
+      DEBUG_OUT.printf("%sRFisTime2Send:%s CMD:%03X CH:%i Sts:%i Setting limit:%i\r\n",LON,LOFF,Cmd, TxCH,TxLimitSts,Limit);
+      if (LIMITABSOLUT){  //set SubCmd and  UsrData for limiting
+          UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]=0; //absolut watt limiting,UsrData[2] doesn't matter what
+          UsrData[3]=((Limit*10) >> 8) & 0xFF;   UsrData[4]= (Limit*10)  & 0xFF;   //WR needs 1 dec point= zB 100.1 W, :-)
+          size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,5);
+      }
+      else {
+        UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]= Limit; // % of rated power limiting
+        size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,3);
+      }
+
+    }
+    else
+      if (SerCmd){ //if a serial command waiting,  after ack the command, SerCmd will be set to NULL
+        switch (SerCmd){ //SrCmd, commands to Tx
+           case 16: //boot wr  0x55AA
+              Cmd=0x51;
+              DEBUG_OUT.printf("%sRFisTime2Send:%s CH:%i CMD 0x%X WR boot Req\r\n",LON,LOFF, TxCH,Cmd);
+              UsrData[0]=0x55;UsrData[1]=0xAA;
+              size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,2);
+           break;
+           case 17: //request WR info
               Cmd=0x0f;
               UsrData[0]=0x01;
-              DEBUG_OUT.printf("CH:%i CMD 0x%X Sending WRInfo Req:0x%X\r\n",TxCH,Cmd,WRInfo);
+              DEBUG_OUT.printf("%sRFisTime2Send:%s CH:%i CMD 0x%X Sending WRInfo Req\r\n",LON,LOFF, TxCH,Cmd);
               size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,1);
             break;
-//            case 21: //GONGFA
-//              Cmd=0x02;
-//              UsrData[0]=0x0;
-//              DEBUG_OUT.print(F("CMD 0x"));DEBUG_OUT.print(Cmd,HEX);DEBUG_OUT.println(F(" Sending Gongfa"));
-//              size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,1);
-//            break;
-            default://request WR data
-              UsrData[0]=0x0;//set SubCmd and  UsrData
-              size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, MIDataCMD, UsrData,1);
-            }
-        break;
-      default: //request WR data
-        UsrData[0]=0x0;//set SubCmd and  UsrData
+            case 21://WR_HW_SW  doesnt work              Cmd=0x06;
+            case 100 ... 1999: //Limiting over serial command
+                 TxLimitSts = true;
+                 DEBUG_OUT.printf("%sRFisTime2Send:%s Limiting over serial command\r\n",LON,LOFF, TxCH,Cmd);
+            break;
+            break;
+ //           default:
+//              UsrData[0]=0x0;//set SubCmd and  UsrData
+//              size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, MIDataCMD, UsrData,1);
+        }
+      }
+      else {//no SerCmd or Limiting,  usual operation : request WR data
+        TxLimitSts = false;
+        UsrData[0]=0x0;//set SubCmd and  UsrData for data request
         size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, MIDataCMD, UsrData,1);
-      }  //switch telegram
-
+      }
     RFTxPacket(dest, (uint8_t *)&sendBuf, size);
     telegram++;
-    MIDataCMD++;
-    } //if millis
+    if (WhichMI == MI1500)  MIDataCMD++;  //next PV, if 4PV modell
+
+  } //if millis
 }//----RFisTime2Send---------------------------------------------------------------------------------------
 
 void RFDumpRxPacket(NRF24_packet_t *p, uint8_t payloadLen) {
 //------------------------------------------------------------------------------------------------------
-    DEBUG_OUT.printf("CH %i ",RxCH);
-    // Write  packets lost, address and payload length
-    dumpData((uint8_t *)&SerialHdr.packetsLost, sizeof(SerialHdr.packetsLost));
-    dumpData((uint8_t *)&SerialHdr.address, sizeof(SerialHdr.address));
-    // Trailing bit?!?
-    dumpData(&p->packet[0], 2);
-    // Payload length from PCF
-    dumpData(&payloadLen, sizeof(payloadLen));
-    // Packet control field - PID Packet identification
-    uint8_t val = (p->packet[1] >> 1) & 0x03;
-    DEBUG_OUT.printf("%i ",val);
-    if (payloadLen > 9) {
-      dumpData(&p->packet[2], 1);
-      dumpData(&p->packet[3], 4);
-      dumpData(&p->packet[7], 4);
+  DEBUG_OUT.printf("CH %i ",RxCH);
+  // Write  packets lost, address and payload length
+  dumpData((uint8_t *)&SerialHdr.packetsLost, sizeof(SerialHdr.packetsLost));
+  dumpData((uint8_t *)&SerialHdr.address, sizeof(SerialHdr.address));
+  // Trailing bit?!?
+  dumpData(&p->packet[0], 2);
+  // Payload length from PCF
+  dumpData(&payloadLen, sizeof(payloadLen));
+  // Packet control field - PID Packet identification
+  uint8_t val = (p->packet[1] >> 1) & 0x03;
+  DEBUG_OUT.printf("%i ",val);
+  if (payloadLen > 9) {
+    dumpData(&p->packet[2], 1);
+    dumpData(&p->packet[3], 4);
+    dumpData(&p->packet[7], 4);
 
-      uint16_t remain = payloadLen - 2 - 1 - 4 - 4 + 4;
+    uint16_t remain = payloadLen - 2 - 1 - 4 - 4 + 4;
 
-      if (remain < 32) {
-        dumpData(&p->packet[11], remain);
-        printf_P(PSTR("%04X "), crc);
-        if (((crc >> 8) != p->packet[payloadLen + 2]) || ((crc & 0xFF) != p->packet[payloadLen + 3]))
-          DEBUG_OUT.printf("%i",0);
-        else
-          DEBUG_OUT.printf("%i",1);
-        }
-      else {
-        DEBUG_OUT.printf("remain %i ",remain);
-        }
-      }
-    else {
-      dumpData(&p->packet[2], payloadLen + 2);
-      DEBUG_OUT.printf("%04X ", crc);
-      }
-    DEBUG_OUT.printf("\r\n",NULL);
+    if (remain < 32) {
+      dumpData(&p->packet[11], remain);
+      printf_P(PSTR("%04X "), crc);
+      if (((crc >> 8) != p->packet[payloadLen + 2]) || ((crc & 0xFF) != p->packet[payloadLen + 3]))
+        DEBUG_OUT.printf("%i",0);
+      else
+        DEBUG_OUT.printf("%i",1);
+    }
+    else DEBUG_OUT.printf("remain %i ",remain);
+  }
+  else {
+    dumpData(&p->packet[2], payloadLen + 2);
+    DEBUG_OUT.printf("%04X ", crc);
+  }
+  DEBUG_OUT.printf("\r\n",NULL);
 }//----RFDumpRxPacket-------------------------------------------------------------------------------
 
 uint8_t PVcheck(bool reset=false){
@@ -674,29 +717,24 @@ uint8_t PVcheck(bool reset=false){
   if ( (millis() - timeCheckPV) > TIMERPVCHECK){  //actualize every TIMERPVCHECK msek
      timeCheckPV = millis();
      pvCnt[0]=pvCnt[1]=pvCnt[2]=pvCnt[3]=0; //reset PV sts
-     DEBUG_OUT.printf("PVcheck timer %i\r\n",timeCheckPV);
+     DEBUG_OUT.printf("%sPVcheck:%s timer %i\r\n",LON,LOFF,timeCheckPV);
      return 0;
-     }
+  }
 
   switch (NRofPV){
-  case 1:
-     if (pvCnt[0]==NRofPV) return NRofPV;
-  break;
-  case 2:
-     if ((pvCnt[0]+pvCnt[1])==NRofPV) return NRofPV;
-  break;
-  case 3:
-     if ((pvCnt[0]+pvCnt[1]+pvCnt[2])==NRofPV) return NRofPV;
-  break;
-  case 4:
-     if ((pvCnt[0]+pvCnt[1]+pvCnt[2]+pvCnt[3])==NRofPV) return NRofPV;
-
-  break;
+    case 1: if (pvCnt[0]==NRofPV) return NRofPV;
+    break;
+    case 2: if ((pvCnt[0]+pvCnt[1])==NRofPV) return NRofPV;
+    break;
+    case 3: if ((pvCnt[0]+pvCnt[1]+pvCnt[2])==NRofPV) return NRofPV;
+    break;
+    case 4: if ((pvCnt[0]+pvCnt[1]+pvCnt[2]+pvCnt[3])==NRofPV) return NRofPV;
+    break;
   }
   return 0;
 }//----------------------------------------------------------------------------------------------
 
-void HandleSerialCmd(void){ //read from serial for WR control cmd's
+void SerialRxHandle(void){ //read from serial for WR control cmd's
 //-------------------------------------------------------------------------------------------
   static uint8_t InCnt=0;
   int temporary=0;
@@ -706,43 +744,79 @@ void HandleSerialCmd(void){ //read from serial for WR control cmd's
     if (incomingByte != 13){ //CR
       SerialIn[InCnt]=incomingByte;
       InCnt++;
-      }
+    }
     else {
       SerialIn[InCnt]=0;   //eofl
       temporary = atoi(SerialIn);
+      DEBUG_OUT.printf("%sSerialIn:%s %s TempCmd:%i\r\n",LON,LOFF,SerialIn,temporary);
 
-      if ((temporary >1999) || (temporary < 100)){  //other cmds. implemented > 2000, request WR info etc.
-        SerCmd = temporary;  //this is a serial command
-        TxLimitSts=0;      //no nrf send needed
-        //DEBUG_OUT.printf("TxLimitSts serialcmd-0 ---- %i ",TxLimitSts);
+      if ((temporary >1999) || (temporary < 100)){  //other cmds. implemented, request WR info etc.
+        SerCmd = temporary;      //this is a serial command
+        TxLimitSts = false;      //no Limit send needed
         SerialCmdHandle();
-        }
-      else{
-        Limit = temporary; //Limit is 100-1999
-        TxLimitSts=1; //nrf send needed
-        //DEBUG_OUT.printf("TxLimitSts serialcmd-1 ---- %i ",TxLimitSts);
-        }
-      DEBUG_OUT.printf(" SerialIn: %s Cmd:%i\r\n",SerialIn,temporary);
-      InCnt=0;
-
+        DEBUG_OUT.printf("%sSerialIn:%s %s SerCmd:%i \r\n",LON,LOFF,SerialIn,SerCmd);
       }
+      else{ //this is a limiting command 100 to 1999 as watt
+        Limit = temporary; //Limit is 100-1999 watt  here
+        if (!LIMITABSOLUT)
+           Limit = round(Limit *100 / MAXPOWER); //Limit is % of rated power now
+        DEBUG_OUT.printf("%sSerialIn:%s %s SerCmd:%i Limiting\r\n",LON,LOFF,SerialIn,SerCmd);
+        SerCmd = temporary; //this is a Limiting command, will be handled in RFisTime2Send()
+      }
+      InCnt=0;
+    }
   }
-}//---HandleSerialCmd-------------------------------------------------------------------------------
+}//---SerialRxHandle-------------------------------------------------------------------------------
 
 void SendMQTTMsg(String topic, String value){
 //-------------------------------------------------------------------------------------------
-  if (WITHWIFI && MQTT){
-      if (!checkWifi()) return;
-      mqttClient.beginMessage(topic);
-      mqttClient.print(value);
-      mqttClient.endMessage();
-      }
+  if (WITHWIFI && isMQTT){
+    if (!checkWifi()) return;
+    mqttClient.beginMessage(topic);
+    mqttClient.print(value);
+    mqttClient.endMessage();
+  }
 
 }//---SendMQTTMsg-------------------------------------------------------------------------------------------------------
 
+void SendMQTTJSON(String topic) {
+//------------------------------------------------------------------------------------------------------------
+      // compose and sent JSON Message
+  String json = String("{\"TIME\":\"")+(String)getDateStr(getNow())+String("T")+(String)getTimeStr(getNow())+String("\", \"ENERGY\":{")+
+  String("\"Power\":")+String(PMI)+String(", ")+
+  String("\"Limit\":")+String(Limit)+String(", ")+
+  String("\"Power_"+(String)(PV+1)+"\":")+String(P_DC)+String(", ")+
+  String("\"Voltage_"+(String)(PV+1)+"\":")+String(U_DC)+String(", ")+
+  String("\"Current_"+(String)(PV+1)+"\":")+String(I_DC)+String(", ")+
+  String("\"Energy_"+(String)(PV+1)+"\":")+String(Q_DC)+String(", ")+
+  String("\"Temperature\":")+String(TEMP)+String(", ")+
+  String("\"Status"+(String)(PV+1)+"\":\"")+String(STAT)+String("\"")+
+  String("}}");
+
+  mqttClient.beginMessage(topic);
+  mqttClient.print(json);
+  mqttClient.endMessage();
+}//----SendMQTTJSON-----------------------------------------------------------------------------------------------------
+
+void SendMQTTTopics (void){
+//----------------------------------------------------------------------------------------------------------------------
+  SendMQTTMsg((String)INVTOT_P, (String) PMI);
+  SendMQTTMsg((String)LIMIT_P, (String) Limit);
+  SendMQTTMsg((String)INV_P_PVNR+(String)(PV+1), (String) P_DC);
+  SendMQTTMsg((String)INV_UDC_PVNR+(String)(PV+1), (String) U_DC);
+  SendMQTTMsg((String)INV_IDC_PVNR+(String)(PV+1), (String) I_DC);
+  SendMQTTMsg((String)INV_Q_PVNR+(String)(PV+1), (String) Q_DC);
+  SendMQTTMsg((String)INV_TEMP, (String) TEMP);
+  SendMQTTMsg((String)INV_STS_PVNR+(String)(PV+1), (String) STAT);
+  SendMQTTMsg((String)INV_CONSUM_P, (String) (abs(GridPower) + PMI));
+  SendMQTTMsg((String)DAY, (String)getDateStr(getNow()));
+  SendMQTTMsg((String)TIME, (String)getTimeStr(getNow()));
+  SendMQTTMsg((String)INFO, "NRF24");
+}//----SendMQTTTopics--------------------------------------------------------------------------------------------------
+
 void PrintOutValues(void){
 //----------------------------------------------------------------------------------------------------------------------
-  DEBUG_OUT.printf("CH:%02i MI:%04iW [PV%1i %5sW %4sV %4sA %04iWh][%5sV %4sHz %4sC S:%i] Grd:%04iW Lm:%04iW PVok:%i  ",
+  DEBUG_OUT.printf("CH:%02i %04iW [PV%1i %5sW %4sV %4sA %04iWh][%5sV %4sHz %4sC S:%i] Grid:%04iW Lmt:%04i%s PVok:%i  ",
   RxCH,
   (int)PMI,
   PV,
@@ -755,10 +829,10 @@ void PrintOutValues(void){
   String(TEMP,1),
   STAT,
   (int)GridPower,
-  Limit,
+  Limit,((LIMITABSOLUT)?"W":"%"),
   PVcheck());
 
-  uint64_t t=millis();
+  uint64_t t=millis(); //print time since started
   uint16_t s = (uint16_t) (t / 1000) % 60;
   uint16_t m = (uint16_t) ((t / (1000 * 60)) % 60);
   uint16_t h = (uint16_t) ((t / (1000 * 60 * 60)) % 24);
@@ -780,24 +854,25 @@ void MI1500DataMsg(NRF24_packet_t *p){
   Q_DC =  (float)((p->packet[21] << 8) + p->packet[22])/1;
   TEMP =  (float) ((p->packet[23] << 8) + p->packet[24])/10;
 
-  if ((30<U_DC<50) && (0<I_DC<15) && (200<U_AC<300) && (45<F_AC<55) && (0<P_DC<420) && (0<TEMP<80))
-   DataOK = 1;
-  else { DEBUG_OUT.printf("Wrong data!!\r\n");DataOK =0; return;}
+  if (!CHECK_CRC)
+    if ((30<U_DC<50) && (0<I_DC<15) && (200<U_AC<300) && (45<F_AC<55) && (0<P_DC<420) && (0<TEMP<80))
+      DataOK = true;  //we need to check this, if no crc
+    else { DEBUG_OUT.printf("%sMIDataMsg:%s Wrong data!!\r\n",LON,LOFF);DataOK = false; return;}
 
   STAT = (uint8_t)(p->packet[25] );
   FCNT = (uint8_t)(p->packet[26]);
   FCODE = (uint8_t)(p->packet[27]);
 
-  if (p->packet[2] == 0xB6)  {PV= 0; TotalP[1]=P_DC; pvCnt[0]=1;}//port 1
-  if (p->packet[2] == 0xB7)  {PV= 1; TotalP[2]=P_DC; pvCnt[1]=1;}//port 2
-  if (p->packet[2] == 0xB8)  {PV= 2; TotalP[3]=P_DC; pvCnt[2]=1;}//port 3
-  if (p->packet[2] == 0xB9)  {PV= 3; TotalP[4]=P_DC; pvCnt[3]=1;}//port 4
+  if (p->packet[2] == 0xB6)  {PV= 0; TotalP[1]= P_DC; pvCnt[0]= 1;}//port 1
+  if (p->packet[2] == 0xB7)  {PV= 1; TotalP[2]= P_DC; pvCnt[1]= 1;}//port 2
+  if (p->packet[2] == 0xB8)  {PV= 2; TotalP[3]= P_DC; pvCnt[2]= 1;}//port 3
+  if (p->packet[2] == 0xB9)  {PV= 3; TotalP[4]= P_DC; pvCnt[3]= 1;}//port 4
   TotalP[0]=TotalP[1]+TotalP[2]+TotalP[3]+TotalP[4];//in TotalP[0] is the totalPvW
-  if((P_DC>PVPOWER) || (P_DC<0) || (TotalP[0]>MAXPOWER)){// cant be!!
-    DEBUG_OUT.printf("Wrong Data.. PV%1i %5sW Total:%5sW \r\n", PV,String(P_DC,1),String(TotalP[0],1) );
+  if((P_DC>MIportPower) || (P_DC<0) || (TotalP[0]>MAXPOWER)){// cant be!!
+    DEBUG_OUT.printf("%sMI1500DataMsg:%s Wrong Data.. PV%1i %5sW Total:%5sW \r\n",LON,LOFF, PV,String(P_DC,1),String(TotalP[0],1) );
     TotalP[0]=0;
     return;
-    }
+  }
 #ifdef ESP8266
   VALUES[PV][0]=PV;
   VALUES[PV][1]=P_DC;
@@ -825,7 +900,7 @@ void MI600StsMsg (NRF24_packet_t *p){
   VALUES[PV][6]=FCNT;
   VALUES[PV][7]=FCODE;
 #endif
-}//--MI600StsMsg---------------------------------------------------------------------
+}//--MI600StsMsg--------------------------------------------------------------------------------------------------------
 
 void MI600DataMsg(NRF24_packet_t *p){
   //--------------------------------------------------------------------------------------------------------------------
@@ -837,18 +912,22 @@ void MI600DataMsg(NRF24_packet_t *p){
   Q_DC =  (float)((p->packet[21] << 8) + p->packet[22])/1;
   TEMP =  (float) ((p->packet[23] << 8) + p->packet[24])/10;
 
-  if ((30<U_DC<50) && (0<I_DC<15) && (200<U_AC<300) && (45<F_AC<55) && (0<P_DC<420) && (0<TEMP<80))
-   DataOK = 1;  //we need to check this, if no crc
-  else { DEBUG_OUT.printf("Data Wrong!!\r\n");DataOK =0; return;}
+  if (!CHECK_CRC)
+    if ((30<U_DC<50) && (0<I_DC<15) && (200<U_AC<300) && (45<F_AC<55) && (0<P_DC<420) && (0<TEMP<80))
+      DataOK = true;  //we need to check this, if no crc
+    else {
+      DEBUG_OUT.printf("%sMIDataMsg:%s Wrong data!!\r\n",LON,LOFF);DataOK = false;
+      return;
+    }
 
-  if (p->packet[2] == 0x89)  {PV= 0; TotalP[1]=P_DC; pvCnt[0]=1;}//port 1
-  if (p->packet[2] == 0x91)  {PV= 1; TotalP[2]=P_DC; pvCnt[1]=1;}//port 2
+  if (p->packet[2] == 0x89)  {PV= 0; TotalP[1]= P_DC; pvCnt[0]= 1;}//port 1
+  if (p->packet[2] == 0x91)  {PV= 1; TotalP[2]= P_DC; pvCnt[1]= 1;}//port 2
 
   TotalP[0]=TotalP[1]+TotalP[2]+TotalP[3]+TotalP[4];//in TotalP[0] is the totalPV power
   if((P_DC>400) || (P_DC<0) || (TotalP[0]>MAXPOWER)){// cant be!!
     TotalP[0]=0;
     return;
-    }
+  }
 #ifdef ESP8266
   VALUES[PV][0]=PV;
   VALUES[PV][1]=P_DC;
@@ -863,74 +942,103 @@ void MI600DataMsg(NRF24_packet_t *p){
 
 void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
 //--------------------------------------------------------------------------------------------------
-
+  static bool ackMIinfo[3] = {false,false,false} ;
+  int i=0;
+  String a ="";
   switch (p->packet[2])  {
-
-    case 0xD1:
-      TxLimitSts=0;//stop sending Limit
-      DEBUG_OUT.printf("Limiting(0x51) is ok CMD:%X  RxCH:%i   TxLimitSts ack ---- %i\r\n",p->packet[2],RxCH,TxLimitSts);
+    case 0xD1: //ACK from CMD:0x51 Limiting, boot MI,..
+      TxLimitSts = false;//stop sending 0x51 command
+      if ( (p->packet[11] == 0x5A) && (p->packet[12] == 0x5A)) { //Power Limiting
+        DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK PowerLimiting(0x5A5A), CMD:%X RxCH:%i\r\n",LON,LOFF, p->packet[2],RxCH);
+        pvCnt[0]=pvCnt[1]=pvCnt[2]=pvCnt[3]=0; //reset PV;sts
+      }
+      if ( (p->packet[11] == 0x55) && (p->packet[12] == 0xAA)) { //boot inverter
+        DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK boot inverter(0x555AA), CMD:%X RxCH:%i\r\n",LON,LOFF, p->packet[2],RxCH);
+      }
+      SerCmd = 0; //ack is here, stop sending
       timeLastAck = millis();
       RxAckTimeOut = TIMEOUTRXACK;
-      pvCnt[0]=pvCnt[1]=pvCnt[2]=pvCnt[3]=0; //reset PV;sts
-      break;
-//    case 0x82: //Gongfa
-//      DEBUG_OUT.print (F("Gongfa(0x2) is ok CMD="));
-//      DEBUG_OUT.println(p->packet[2], HEX);
-//      dumpData(&p->packet[3], payloadLen);
-//      SerCmd=0; //stop sending
-//      break;
-    case 0x8f:
-      DEBUG_OUT.printf("WRInfo ack %x is ok for CMD 0x0F \r\n",p->packet[2]);
-      DEBUG_OUT.printf("WR %x:%x:%x:%x ",p->packet[7],p->packet[8],p->packet[9],p->packet[10]);
-      DEBUG_OUT.printf("HWPN: %i.%i ",p->packet[11],p->packet[12]);
-      DEBUG_OUT.printf("HWVers: %i.%i ",p->packet[13],p->packet[14]);
-      DEBUG_OUT.printf("APPFVers: %i.%i ",p->packet[15],p->packet[16]);
-      DEBUG_OUT.printf("GPFCode: %i.%i ",p->packet[17],p->packet[18]);
-      DEBUG_OUT.printf("GPFVers: %i.%i\r\n",p->packet[19],p->packet[20]);
-      SerCmd=0; //stop sending WRInfo
+    break;
+//    case 0x82:0x82 Gongfa also doesnt work
+//    break;
+//    case 0x86: //RF SW HW  ? DOESNT work on MI's!!
+//    break;
+    case 0x8f: //ACK WRInfo from CMD:0x0f
+      DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK WRInfo(0x0F),CMD:%x RxCH:%i\r\n",LON,LOFF,p->packet[2],RxCH);
+      DEBUG_OUT.printf("\r\n%sMI %x:%x:%x:%x ",LON,p->packet[7],p->packet[8],p->packet[9],p->packet[10]);
+
+      switch (p->packet[11]){
+        case 0:// Command Receipt - First Frame
+          DEBUG_OUT.printf("USFWBLD:%i.%i ",p->packet[12],p->packet[13]);
+          DEBUG_OUT.printf("APFWBLD:%i.%i ",p->packet[14],p->packet[15]);
+          DEBUG_OUT.printf("APPFDate:%i-",(p->packet[16]<<8) + p->packet[17]); //(YYYYd-)
+          i = ((p->packet[18]<<8) + p->packet[19]);
+          a= String( int(i /100))+"-"+String( int(i % 100));
+          DEBUG_OUT.printf("%s ",a); //MM-DD
+          i = ((p->packet[20]<<8) + p->packet[21]);
+          a= String( int(i /100))+":"+String( int(i % 100));
+          DEBUG_OUT.printf(" %s%s",a,LOFF); //hh:mm
+          ackMIinfo [0]= true;
+        break;
+        case 1:
+          DEBUG_OUT.printf("HWPN:%x.%x.%x.%x ",p->packet[12],p->packet[13],p->packet[14],p->packet[15]);
+          DEBUG_OUT.printf("HWFBTLmValue:%x.%x ",p->packet[16],p->packet[17]);
+          DEBUG_OUT.printf("HWFBReSPRT:%x.%x ",p->packet[18],p->packet[19]);
+          DEBUG_OUT.printf("GridSamp:%x.%x ",p->packet[20],p->packet[21]);
+          DEBUG_OUT.printf("ECapValue:%x.%x ",p->packet[22],p->packet[23],LOFF);
+          DEBUG_OUT.printf(" MatchAPPFWPN:%x.%x.%x.%x%s",p->packet[24],p->packet[25],p->packet[26],p->packet[27],LOFF);//HHMM
+          ackMIinfo [1]= true;
+        break;
+        case 2:
+          DEBUG_OUT.printf("APPFW_MINVER:%x.%x ",p->packet[12],p->packet[13]);
+          DEBUG_OUT.printf("HWINFOadr:%x.%x ",p->packet[14],p->packet[15]);
+          DEBUG_OUT.printf("PNInfoCRC:%x.%x %s",p->packet[16],p->packet[17],LOFF);
+          ackMIinfo [2]= true;
+        break;
+      }
+      DEBUG_OUT.printf(" frame:%i\r\n\r\n",p->packet[11]);
+//      if ( ackMIinfo[0] && ackMIinfo[1] && (ackMIinfo[2]) ){ //never get the frame 3????
+      SerCmd = 0; //ack is here, stop sending CMD: WRInfo after all 3 frames are received
+//         ackMIinfo[0] = ackMIinfo[1] = ackMIinfo[2]= false;
+//         }
+
       timeLastAck = millis();
-      break;
+    break;
+
     case 0xB6:    //4 ports
     case 0xB7:    //4 ports
     case 0xB8:    //4 ports
     case 0xB9:    //4 ports
-        timeLastAck = millis();
-        RxAckTimeOut = TIMEOUTRXACK;
-        MI1500DataMsg(p);
-        break;
+      timeLastAck = millis();
+      RxAckTimeOut = TIMEOUTRXACK;
+      MI1500DataMsg(p);
+    break;
 
     case 0x89:    //1-2 ports
     case 0x91:    //2 ports
-        timeLastAck = millis();
-        RxAckTimeOut = TIMEOUTRXACK;
-        MI600DataMsg(p);
-        break;
+      timeLastAck = millis();
+      RxAckTimeOut = TIMEOUTRXACK;
+      MI600DataMsg(p);
+    break;
 
     case 0x88:    //1-2 ports
     case 0x92:    //2 ports
-        timeLastAck = millis();
-        RxAckTimeOut = TIMEOUTRXACK;
-        MI600StsMsg(p);
-        break;
+      timeLastAck = millis();
+      RxAckTimeOut = TIMEOUTRXACK;
+      MI600StsMsg(p);
+    break;
     default:
-       DEBUG_OUT.printf("New CMD  %x \t",p->packet[2]);
+       DEBUG_OUT.printf("%sMIAnalysePacket:%s new CMD  %x \t",LON,LOFF, p->packet[2]);
        RFDumpRxPacket (p, payloadLen); //output received data
     }
 }//--MIAnalysePacket----------------------------------------------------------------------------------
 
-void RFAnalyse(void) {
+void RFRxAnalyse(void) {
 //--------------------------------------------------------------------------------------------------
- int i=0;
-//  if (packetBuffer.empty()){
-//  DEBUG_OUT.println("RFAnalyse buffer empty");
-//  return;
-//  }
   while (!packetBuffer.empty()) {
-    //DEBUG_OUT.printf("Analyse read buffer %i\r\n",i++);
     timeLastPacket = millis();
     // One or more records present
     NRF24_packet_t *p = packetBuffer.getBack();
-
     // Shift payload data due to 9-bit packet control field
     for (int16_t j = sizeof(p->packet) - 1; j >= 0; j--) {
      if (j > 0)
@@ -952,155 +1060,168 @@ void RFAnalyse(void) {
     if ( (DEBUG_RCV_DATA) || (SNIFFER) )
       RFDumpRxPacket (p, payloadLen); //output received data
 
-
     if (CHECK_CRC) {
       // If CRC is invalid only show lost packets
       if (((crc >> 8) != p->packet[payloadLen + 2]) || ((crc & 0xFF) != p->packet[payloadLen + 3])) {
         if (p->packetsLost > 0) {
-          DEBUG_OUT.printf("RFAnalyse CRC lost packets: %i",p->packetsLost);
-          }
-        //DEBUG_OUT.printf("RFAnalyse CRC fail "));
-        packetBuffer.popBack();
-//        packetBuffer.clear();//????????
-//        radio1.flush_rx();// Flush buffer to drop the packet.
-        continue;
+          DEBUG_OUT.printf("%sRFRxAnalyse:%s CRC lost packets: %i",LON,LOFF,p->packetsLost);
         }
+        packetBuffer.popBack();
+        continue;
+      }
       // Dump a decoded packet only once
       if (lastCRC == crc) {
-//
-//        DEBUG_OUT.printf("RFAnalyse last CRC "));
         packetBuffer.popBack();
-//        packetBuffer.clear();//????????
-//        radio1.flush_rx();// Flush buffer to drop the packet.
         continue;
-        }
+      }
       lastCRC = crc;
     }// if checkcrc
     // Don't dump mysterious ack packages
     if (payloadLen == 0) {
       packetBuffer.popBack();
-      DEBUG_OUT.printf("RFAnalyse mysterious ack \r\n");
+      DEBUG_OUT.printf("%sRFRxAnalyse:%s mysterious ack \r\n",LON,LOFF);
       continue;
-      }
+    }
 
     if (p->packetsLost > 0) {
-      DEBUG_OUT.printf("RFAnalyse packet lost: %i\r\n", p->packetsLost);
+      DEBUG_OUT.printf("%sRFRxAnalyse:%s packet lost: %i\r\n",LON,LOFF, p->packetsLost);
       continue;
-      }
+    }
     if (!SNIFFER)
       MIAnalysePacket(p,payloadLen);
 
-    // Remove record as we're done with it.
-    packetBuffer.popBack();
+    packetBuffer.popBack(); // Remove record as we're done with it.
   } //while
 //  packetBuffer.popBack();??????????????
-}//-----RFAnalyse-------------------------------------------------------------------------------
+}//-----RFRxAnalyse-------------------------------------------------------------------------------
 
 
 void DoZeroExport(void){
 //-------------------------------------------------------------------------------------------------
+/* Be aware!
+   DTSU Export power must be PLUS
+   DTSU Import power must be MINUS
+*/
+  if (millis() < UpdateZeroExpTick){//wait for zeroexport timer
+    DEBUG_OUT.printf("%sZeroExport:%s timer, not yet !\r\n",LON,LOFF);
+    return; //not in first 60 sek
+  }
+  else if (WR_LIMITTED) UpdateZeroExpTick += FIXLIMITTICK;//if fixed limitation, set timer a bit longer
+       else UpdateZeroExpTick += ZEXPUPDATETICK;
 
-    if (millis() < UpdateZeroExpTick){//not overload the web&mqtt server
-        DEBUG_OUT.printf("ZeroExport timer: not yet !\r\n");
-        return; //not in first 60 sek
-        }
-    else if (WR_LIMITTED) UpdateZeroExpTick += FIXLIMITTICK;//set timer a bit longer
-         else UpdateZeroExpTick += ZEXPUPDATETICK;
-    if (WR_LIMITTED){
-        Limit = WR_LIMITTED;
-        GridPower = TOLERANCE+1; //;-)
-        DEBUG_OUT.printf("Limiting WR %i\r\n", Limit);
-        TxLimitSts=1;
-        return;
-        }
-    if (!TxLimitSts){
-        if (abs (GridPower) > TOLERANCE) { // || (abs (Limit-OldLimit) > TOLERANCE )){//if change more than 15 watt
-            DEBUG_OUT.printf("Grid out of Tolerance %f\r\n", GridPower);
-            if (GridPower >0){ //Exporting is PLUS zu viel power
-                Limit= PMI - GridPower;  //327-(296)
-                }
-            else { //importing is minus zu wenig power
-                Limit= PMI+ abs(GridPower); //327+abs(-296)
-                }
-            if (HH > 17) Limit = 160; //after 17h not shut down the mi
-            else if (Limit < MINPOWER) Limit = 100;
-                 else if (Limit > MAXPOWER) Limit = MAXPOWER;
-            if (!TxLimitSts){
-                //OldLimit = Limit;
-                TxLimitSts=1; //we can send
-                //DEBUG_OUT.printf("TxLimitSts zeroexp-0 ---- %i\r\n",TxLimitSts);
-                }
-            }
-        else {
-             TxLimitSts=0;
+  if (!SmartMeterOk){
+    DEBUG_OUT.printf("%sZeroExport:%s Smartmeter is not ready!\r\n",LON,LOFF);
+    return;
+  }
 
-            DEBUG_OUT.printf("Grid in the tolerance %i\r\n", (int)GridPower);
-            //DEBUG_OUT.printf(" TxLimitSts zeroexp-1 ---- %i\r\n",TxLimitSts);
-            }
+  if (WR_LIMITTED){  //inverter is permanently limited, producing fixed power
+    Limit = WR_LIMITTED;
+    GridPower = TOLERANCE+1; //;-)
+    DEBUG_OUT.printf("%sZeroExport:%s fixed limiting inverter to %i\r\n",LON,LOFF,Limit);
+    TxLimitSts = true;
+    return;
+  }
+  if ((!TxLimitSts) && SmartMeterOk){  //we allow to send and smartmeter is alive
+    if (abs (GridPower) > TOLERANCE) { // || (abs (Limit-OldLimit) > TOLERANCE )){//if change more than 15 watt
+      if (GridPower >0){ //Export P is PLUS on DTSU666, MI producing too much power, need less power
+          Limit= PMI - abs(GridPower);  //327-(296)
+      }
+      else { //Import P is MINUS on DTSU666, MI producing too low power, needing more power
+          Limit= PMI+ abs(GridPower); //327+abs(-296)
+      }
+      int consumP= abs(GridPower) + PMI;
+      if ((HH >= AFTERHH)&&(Limit <= MINPOWER)) {
+        Limit = MINPOWER+20; //watt, do not shut down inverter after 17h
+        DEBUG_OUT.printf("%sZeroExport:%s after %ih limit is %i \r\n",LON,LOFF,AFTERHH,(int)Limit);
+        }
+
+      if ( (MINPOWER >= consumP) && (consumP >= (int)(MINPOWER/2)) ) {
+          Limit = MINPOWER+10; //do not shutdown inverter when more than half minP is used
+          DEBUG_OUT.printf("%sZeroExport:%s Consum:%i is > MINP/2:%i, Limit: %i \r\n",LON,LOFF, (int)consumP,(int)(MINPOWER/2),(int)Limit);
+        }
+      else DEBUG_OUT.printf("%sZeroExport:%s not doing this, Consum:%i is  MINP/2:%i, Limit: %i \r\n",LON,LOFF, (int)consumP,(int)(MINPOWER/2),(int)Limit);
+
+      if (Limit >= MAXPOWER) Limit = MAXPOWER; //Limit is still in watt here
+
+      if (!LIMITABSOLUT)  //if we want the % of rated power limiting
+          Limit = round(Limit *100 / MAXPOWER); //Limit is now % of rated power
+      // ToDo  -----zero export fine tuning--------------------------------------------------------
+      if (!TxLimitSts) TxLimitSts = true; //we can send
+      DEBUG_OUT.printf("%sZeroExport:%s GridPower out of tolerance %i W, Limiting %i\r\n",LON,LOFF, (int)GridPower,(int)Limit);
     }
-}//---DoZeroExport----------------------------------------------------------------------------------
+    else {
+      TxLimitSts = false;
+      DEBUG_OUT.printf("%sZeroExport:%s GridPower inside tolerance %i W, do nothing\r\n",LON,LOFF, (int)GridPower);
+    }
+    SmartMeterOk = false; //wait again on new data
+  }
+}//---DoZeroExport------------------------------------------------------------------------------------------------------
 
 void loop(void) {
-//===============================================================================================
+//======================================================================================================================
 
-  HopCH();
-  //if (INTERRUPT) DISABLE_EINT;
-  //setRxPipe();
-  radio1.setChannel(RxCH);
-  radio1.startListening();
-  //if (INTERRUPT) ENABLE_EINT;
+  HopCH(); //Rx/Tx channel hopping, Rx with a timer timeout
 
+  radioDTU.stopListening();
+  radioDTU.setChannel(RxCH);
+  radioDTU.startListening();
 
-  if(!INTERRUPT){//polling if !INTERRUPT
-    if (RFRxPacket())
-        RFAnalyse();
-    }
+  if (!INTERRUPT)//RF polling if NOT INTERRUPT  defined
+    RFRxPacket();
+
+  delay(10); //this is very important !! without it, we were too fast in loop!!
+
+  RFRxAnalyse();//analyse RF packet if any received
+
   if (! SNIFFER){
-    HandleSerialCmd();  //read from serial any command
-    if ((!ONLY_RX) && (istTag)) //  weiter machen!!!!
-        RFisTime2Send();//SEND PACKET
-    }
-  PVcheck();
+    SerialRxHandle();  //read from serial console any command
+    if ((!ONLY_RX) && (is_Day)) // sending packet only in day time
+        RFisTime2Send();//send packet over NRF
+  }
+  PVcheck(); //do we got all PV's data?
   #ifdef ESP8266
     if (WITHWIFI && (!SNIFFER)){
        if (!checkWifi()){
          setup();
-         //checkUpdateByOTA();
+       }
+       if (millis() >= UpdateIPServicesTick){//not overload the web&mqtt server
+         is_Day = isDayTime(0);
+         if (!is_Day) {//at night, the website should not show old data
+            for (byte pv=0; pv < NRofPV; pv++)
+              for (byte i = 0; i < (ANZAHL_VALUES); i++)
+                VALUES[pv][i]=0;
          }
-       if (millis() >= UpdateMqttTick){//not overload the web&mqtt server
-         istTag = isDayTime(0);
-         UpdateMqttTick += IPServicesUPDATETICK;
-         if (MQTT) mqttClient.poll();
+         UpdateIPServicesTick += IPServicesUPDATETICK;
+
+         webserverHandle(); //we publishing what we have
+
+         if (isMQTT && WITHMQTT)
+            mqttClient.poll();
+         else if (WITHMQTT)
+                setupMQTT();
+
+         #ifdef WITH_OTA
+            checkUpdateByOTA();
+         #endif
+
          if (PVcheck()){
-             if (ZEROEXP)//not on first 60sek
+             if (ZEROEXP)
                 DoZeroExport();
 
- //            PVcheck(true); //reset checkPVs
-             webserverHandle();
-             if (MQTT && DataOK ){
-               //DEBUG_OUT.printf("Update Mqtt Services\r\n");
+             if (isMQTT && DataOK ){  //send mqtt if only inverter data ok
                mqttClient.poll();
-               SendMQTTMsg((String)INVTOT_P, (String) PMI);
-               SendMQTTMsg((String)LIMIT_P, (String) Limit);
-               SendMQTTMsg((String)INV_P_PVNR+(String)(PV+1), (String) P_DC);
-               SendMQTTMsg((String)INV_UDC_PVNR+(String)(PV+1), (String) U_DC);
-               SendMQTTMsg((String)INV_IDC_PVNR+(String)(PV+1), (String) I_DC);
-               SendMQTTMsg((String)INV_Q_PVNR+(String)(PV+1), (String) Q_DC);
-               SendMQTTMsg((String)INV_TEMP, (String) TEMP);
-               SendMQTTMsg((String)INV_STS_PVNR+(String)(PV+1), (String) STAT);
-               SendMQTTMsg((String)INV_CONSUM_P, (String) (abs(GridPower) + PMI));
-               SendMQTTMsg((String)DAY, (String)getDateStr(getNow()));
-               SendMQTTMsg((String)TIME, (String)getTimeStr(getNow()));
-               SendMQTTMsg((String)INFO, "NRF24");
-               }
+               #ifdef SENDJSON
+                   SendMQTTJSON(JSON_TOPIC);
+               #else
+                   SendMQTTTopics();
+               #endif
+             }
              else {
-               //DEBUG_OUT.printf("No MQTT..\r\n");
-               if (!MQTT) MQTT=setupMQTT();
-               }
-             }//server
-         }//update
-         //UpdtCnt=0;
-     }//wifi
+               if (!isMQTT && WITHMQTT) isMQTT=setupMQTT(); //mqtt was not connected or lost connection
+             }
+         }//PVcheck
+       }//update
+    }//wifi
   #endif //esp8266
 
 }//-----loop-----------------------------------------------------------------------------------------

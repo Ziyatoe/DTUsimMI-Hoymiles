@@ -1,13 +1,17 @@
-/* die orig. SW ist vom Hubi, wurde von mir(Ziyat T.) für den MI-WR abgeaendert.
-Getestet auf ESP8266/ArduinoUNO.
-https://www.mikrocontroller.net/topic/525778
-https://github.com/hm-soft/Hoymiles-DTU-Simulation
-----------------------------------------
-Alle Einstellungen sind in Settings.h UND secrets.h !!
-----------------------------------------
+/*
+This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverters over RF(NRF24)
+Based on the orig. SW from Hubi's earlier stage from his (https://github.com/hm-soft/Hoymiles-DTU-Simulation)
+recoded and expanded for the Hoymiles microinverter family MI, by Ziyat T.
+
+Project initiated here: https://www.mikrocontroller.net/topic/525778
+Do not expect any quality from this SW!!!
+
+------------------------------------------------------------------------------------------------------------------------
+Configuration are  in Settings.h and secrets.h !!
+------------------------------------------------------------------------------------------------------------------------
 */
 
-// #################  WebServer #################
+// #################  WebServer & OTA #################
 
 #ifndef __MODWEBSERVER_H
   #define __MODWEBSERVER_H
@@ -16,9 +20,19 @@ Alle Einstellungen sind in Settings.h UND secrets.h !!
 #include <ESP8266WebServer.h>
 #include "Debug.h"
 #include "Settings.h"
+#include "Globals.h"
 
 ESP8266WebServer server (WEBSERVER_PORT);
 
+String getMyStyle(String myStyle){
+        myStyle = "<style>";
+        myStyle += "#myT {font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;<!--width: 100%;-->}";
+        myStyle += "#myT td,#myT th {border:1px solid #ddd;padding:8px;}";
+        myStyle += "#myT th {padding-top:4px;padding-bottom:4px;text-align:left;background-color:#04AA6D;color:white;}";
+        myStyle += "h1,h2,h3,h4,h5,h6{font-family:sans-serif;color:maroon;border-bottom:1px solid rgb(200, 200, 200);}";
+        myStyle += "</style>";
+        return myStyle;
+}
 
 void returnOK () {
 //---------------------------------------------------------------------------------------------------------
@@ -33,78 +47,107 @@ void returnFail(String msg) {
 
 void handleHelp () {
 //---------------------------------------------------------------------------------------------------------
-    String out = "<html>";
-    out += "<body><h2>Hilfe</h2>";
-    out += "<br><br><table>";
-    out += "<tr><td>/</td><td>zeigt alle Messwerte in einer Tabelle; refresh alle 10 Sekunden</td></tr>";
-    out += "<tr><td>/data</td><td>zum Abruf der Messwerte in der Form Name=wert</td></tr>";
-    out += "<tr><td>:{port+1}/update</td><td>OTA</td></tr>";
-    out += "<tr><td>/reboot</td><td>startet neu</td></tr>";
-    out += "</table></body></html>";
+    String htmlStyle;
+    String out = "<html><head><title>Hoylmoly MI-DTU / Help</title></head><body>";
+
+    out += getMyStyle(htmlStyle);
+ //   out += "<h5>Hoylmoly Version " + String(VERSION) + " started at " + String(STARTTIME) +"</h5><br><br><br>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif;'>Hoylmoly Version"+String(VERSION)+"started:"+STARTTIME+"</p>";
+
+    out += "<table id='myT'>";
+    out += "<tr><th>url</th><th>what</th></tr>";
+    out += "<tr><td>/</td><td>MI Data</td></tr>";
+    out += "<tr><td>/data</td><td>Data as text</td></tr>";
+    out += "<tr><td>:[port+1]/update</td><td>OTA update firmware</td></tr>";
+    out += "<tr><td>/reboot</td><td>reboot DTU</td></tr>";
+
+    out += "<tr><th>Config params</th><th>on/off</th></tr>";
+    out += "<tr><td>DEBUG_RCV_DATA</td><td>"+ String(DEBUG_RCV_DATA) + "</td></tr>";
+    out += "<tr><td>DEBUG_TX_DATA</td><td>"+ String(DEBUG_TX_DATA) + "</td></tr>";
+    out += "<tr><td>WITHWIFI</td><td>"+ String(WITHWIFI) + "</td></tr>";
+    out += "<tr><td>ZEROEXP</td><td>"+ String(ZEROEXP) + "</td></tr>";
+    out += "<tr><td>INTERRUPT</td><td>"+ String(INTERRUPT) + "</td></tr>";
+    out += "<tr><td>SNIFFER</td><td>"+ String(SNIFFER) + "</td></tr>";
+    out += "<tr><td>ONLY_RX</td><td>"+ String(ONLY_RX) + "</td></tr>";
+    out += "<tr><td>CHECK_CRC</td><td>"+ String(CHECK_CRC) + "</td></tr>";
+    out += "<tr><td>WITHMQTT</td><td>"+ String(WITHMQTT) + "</td></tr>";
+    #ifdef WITH_OTA
+    out += "<tr><td>WITH_OTA</td><td>"+ String(1) + "</td></tr>";
+    #endif
+
+    switch (PA_LEVEL){
+      case 1:out += "<tr><td>PA_LEVEL_LOW</td><td>"+ String(PA_LEVEL) + "</td></tr>";
+      break;
+      case 2:out += "<tr><td>PA_LEVEL_HIGH</td><td>"+ String(PA_LEVEL) + "</td></tr>";
+      break;
+      case 3:out += "<tr><td>PA_LEVEL_MAX</td><td>"+ String(PA_LEVEL) + "</td></tr>";
+      break;
+      }
+
+    out += "</table>";
+    out += "</body></html>";
     server.send (200, "text/html", out);
-  }
+
+}//---------------------------------------------------------------------------------------------------------
 
 
 void handleReboot () {
 //---------------------------------------------------------------------------------------------------------
     returnOK ();
     ESP.reset();
-  }
+}//---------------------------------------------------------------------------------------------------------
 
 void handleRoot() {
 //---------------------------------------------------------------------------------------------------------
-   String out = "<!DOCTYPE html><html><head><title>Hoylymoly</title><meta http-equiv='refresh' content='15':URL='";
-    out += server.uri()+"'><style>";
-    out += "#myT {font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;<!--width: 100%;-->}";
-    out += "#myT td,#myT th {border:1px solid #ddd;padding:8px;}";
-    out += "#myT th {padding-top:4px;padding-bottom:4px;text-align:left;background-color:#04AA6D;color:white;}";
-    out += "h1,h2,h3,h4,h5,h6{font-family:sans-serif;color:maroon;border-bottom:1px solid rgb(200, 200, 200);}";
-    out += "</style></head><body>";
+    String htmlStyle;
+    String out = "<!DOCTYPE html><html><head><title>Hoylmoly MI-DTU / main</title><meta http-equiv='refresh' content='"+String(REFRESH)+"':URL='";
+    out += server.uri()+"'>";
+    out += getMyStyle(htmlStyle);
+    out += "</head><body>";
 
-    out += "<h2>Hoylymoly Micro-Inverter "+ String(MIWHAT)+"</h2>";
-    out += "<h5>"+(String)getDateStr(getNow())+" "+(String)getTimeStr(getNow())+"    started:"+STARTTIME+"</h5>";
-
-
-
+    out += "<h2>Hoylmoly Micro-Inverter "+ String(MIWHAT) + "</h2>";
+    out += "<h5>"+(String)getDateStr(getNow()) + " "+(String)getTimeStr(getNow()) + "</h5>";
     out += "<table id='myT'>";
     out += "<tr><th>MI P</th><th>-Imp/Exp+</th><th>Limit</th><th>U AC</th><th>Freq</th><th>Temp</th></tr>";
-    out += "<tr><td>"+String(PMI) +" W</td><td>"+String(GridPower)+" W</td><td>"+String(LIM)+" W</td><td>"+String(U_AC);
-    out += " V</td><td>"+String(F_AC)+" Hz</td><td>"+String(TEMP)+" C</td></tr>";
-
-
+    out += "<tr><td>"+String(PMI) +" W</td><td>"+String(GridPower) + " W</td><td>"+String(LIM) + "</td><td>"+String(U_AC);
+    out += " V</td><td>"+String(F_AC) + " Hz</td><td>"+String(TEMP) + " C</td></tr>";
     out += "</table>";
 
     out += "<table id='myT'>";
     out += "<tr>";
-    //<th>Kanal</th><th>PV1</th>PV2</th>PV3</th>PV4</th></tr>";
-      for (byte i = 0; i < (ANZAHL_VALUES); i++)
-        out += "<th>" +  String(getChannelName(i)) + "</th>";
+    for (byte i = 0; i < (ANZAHL_VALUES); i++)
+        out += "<th>" +  String(getChannelName(i)) + "</th>";  //title
     out += "</tr>";
 
-    for (byte pv=0; pv <=3; pv++){
+    for (byte pv=0; pv < NRofPV; pv++){
       out += "<tr>";
       for (byte i = 0; i < (ANZAHL_VALUES); i++)
         if (i==0) out += "<td>" +  String(int(VALUES[pv][i])) + "</td>"; //PVnr must not be displayed as a floatnr
         else out += "<td>" +  String(VALUES[pv][i]) + "</td>";
       out += "</tr>";
       }
+    out += "</table>";
 
-    out += "</table></body></html>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> started:"+STARTTIME+"<br>";
+    out += "now&nbsp"+String((is_Day)?"its day time":"its night time")+"</p>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> url/help<br>url/reboot<br>url:[port+1]/update OTA</p>";
+
+    out += "</body></html>";
     server.send (200, "text/html", out);
-    //DEBUG_OUT.println (out);
-  }
+
+}//---------------------------------------------------------------------------------------------------------
 
 
 void handleData () {
 //---------------------------------------------------------------------------------------------------------
     String out = "";
-    for (byte pv=0; pv < 3; pv++){
+    for (byte pv=0; pv < NRofPV; pv++)
       for (int i = 0; i < ANZAHL_VALUES; i++) {
         out += String(getChannelName(i)) + '=' + String (VALUES[pv][i]) + '\n';
       }
-      server.send(200, "text/plain", out);
-    }
-  }
+    server.send(200, "text/plain", out);
+
+}//---------------------------------------------------------------------------------------------------------
 
 
 void handleNotFound() {
@@ -120,7 +163,7 @@ void handleNotFound() {
       message += " NAME:" + server.argName(i) + "\n VALUE:" + server.arg(i) + "\n";
     }
     server.send(404, "text/plain", message);
-  }
+}//---------------------------------------------------------------------------------------------------------
 
 
 void setupWebServer (void) {
@@ -134,33 +177,35 @@ void setupWebServer (void) {
     server.begin();
 
     DEBUG_OUT.println ("[HTTP] installed");
-  }
+}//---------------------------------------------------------------------------------------------------------
 
 void webserverHandle() {
 //---------------------------------------------------------------------------------------------------------
     server.handleClient();
-  }
+}//---------------------------------------------------------------------------------------------------------
 
 
   // #################  OTA #################
 
   #ifdef WITH_OTA
-  #include <ESP8266HTTPUpdateServer.h>
+    #include <ESP8266HTTPUpdateServer.h>
 
-  ESP8266WebServer httpUpdateServer (UPDATESERVER_PORT);
-  ESP8266HTTPUpdateServer httpUpdater;
+    ESP8266WebServer httpUpdateServer (UPDATESERVER_PORT);
+    ESP8266HTTPUpdateServer httpUpdater;
 
-void setupUpdateByOTA () {
-//---------------------------------------------------------------------------------------------------------
-    httpUpdater.setup (&httpUpdateServer, UPDATESERVER_DIR, UPDATESERVER_USER, UPDATESERVER_PW);
-    httpUpdateServer.begin();
-    DEBUG_OUT.println (F("[OTA] installed"));
-  }
 
-void checkUpdateByOTA() {
-//---------------------------------------------------------------------------------------------------------
-    httpUpdateServer.handleClient();
-  }
-  #endif
+    void setupUpdateByOTA () {
+    //---------------------------------------------------------------------------------------------------------
+      httpUpdater.setup (&httpUpdateServer, UPDATESERVER_DIR, UPDATESERVER_USER, UPDATESERVER_PW);
+      httpUpdateServer.begin();
+      DEBUG_OUT.println (F("[OTA] installed"));
+    }
 
-#endif
+    void checkUpdateByOTA() {
+    //---------------------------------------------------------------------------------------------------------
+      httpUpdateServer.handleClient();
+    }
+  #endif  //WITH_OTA
+
+
+#endif //__MODWEBSERVER_H

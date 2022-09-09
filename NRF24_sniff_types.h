@@ -16,7 +16,6 @@
   You should have received a copy of the GNU General Public License
   along with NRF24_Sniff.  If not, see <http://www.gnu.org/licenses/>.
 */
-
 #ifndef NRF24_sniff_types_h
 #define NRF24_sniff_types_h
 

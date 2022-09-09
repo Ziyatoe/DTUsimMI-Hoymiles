@@ -1,8 +1,16 @@
-DTU simulator for Hoymiles MIx00, MI1x00 Microinverter over RF (NRF24)
+DTU simulator for Hoymiles MI Microinverter over RF (NRF24)
 -
+
+Supports only ONE inverter!
+
+Supported inverters, with serial number begin:
+- 0x1021xxxxxx
+- 0x1041xxxxxx
+- 0x1061xxxxxx
+
 This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverters over RF, tested with:
 
-- MI1500, 3 PV's.
+- MI1500, 3 PV's. 
 - MI600
 - TSUN800 (as MI600), 2 PV's
 
@@ -49,3 +57,16 @@ Please SEE the issues !!!
 - fixed limiting the wr over WR_LIMITTED in settings.h
 - more data moved to settings.h
 - several enhancements
+
+>VERSION "V0.1.7"
+- new file "Globals.h"
+- automatic recognition the inverter (MI) model,power and ports
+- several changes for stability
+- zeroexport with % of reated power OR absolute power
+
+>VERSION "V0.1.9"
+- no irq issues anymore
+- significant modifications
+- a lot of enhancements
+- more serial commands for inverter, type 1 help on console
+- mqtt reconnect

@@ -1,5 +1,3 @@
-
-
 #ifndef __WIFI_H
 #define __WIFI_H
 
@@ -9,9 +7,6 @@
   #include <ESP8266WiFi.h>
   //#include <Pinger.h>       // von url=https://www.technologytourist.com
 #endif
-
-
-
 
 String SSID = "";         // bestes WLan
 uint8_t WIFIConnect = 5;//not connect 0 else 5
@@ -26,7 +21,7 @@ boolean checkWifi();
 
 
 String findWifi () {
-//----------------
+//----------------------------------------------------------------------------------------------------------------------
   String ssid;
   int32_t rssi;
   uint8_t encryptionType;
@@ -38,14 +33,14 @@ String findWifi () {
   String best_ssid = "";
   int32_t best_rssi = -100;
   
-  DEBUG_OUT.println(F("Starting WiFi scan..."));
+  DEBUG_OUT.println(F("[WiFi] Starting scan..."));
 
   scanResult = WiFi.scanNetworks(/*async=*/false, /*hidden=*/true);
 
   if (scanResult == 0) {
-    DEBUG_OUT.println(F("keine WLans"));
+    DEBUG_OUT.println(F("[WiFi] NO WLans"));
   } else if (scanResult > 0) {
-    DEBUG_OUT.printf(PSTR("%d WLans gefunden:"), scanResult);DEBUG_OUT.println("");
+    DEBUG_OUT.printf(PSTR("[WiFi] %d WLan found:\r\n"), scanResult);
 
     // Print unsorted scan results
     for (int8_t i = 0; i < scanResult; i++) {
@@ -79,36 +74,39 @@ String findWifi () {
       }
     }
   } else {
-    DEBUG_OUT.printf(PSTR("WiFi scan error %d"), scanResult);DEBUG_OUT.println("");
+    DEBUG_OUT.printf("[WiFi] scan error %d\r\n", scanResult);
   }
 
   if (! best_ssid.equals("")) {
     SSID = best_ssid;
-    DEBUG_OUT.printf ("Bestes Wifi unter: %s\n", SSID.c_str()); DEBUG_OUT.println("");
+    DEBUG_OUT.printf ("[WiFi] best radio: %s\r\n", SSID.c_str());
     return SSID;
   }
   else
     {SSID = "";
     return "";
-    }
-}
+  }
+}//----------------------------------------------------------------------------------------------------------------------
 
 void IP2string (IPAddress IP, char * buf) {
+//----------------------------------------------------------------------------------------------------------------------
   sprintf (buf, "%d.%d.%d.%d", IP[0], IP[1], IP[2], IP[3]);
-}
+}//----------------------------------------------------------------------------------------------------------------------
 
 String PrintMyIP (void){
+//----------------------------------------------------------------------------------------------------------------------
  char buffer[30];
  IP2string (WiFi.localIP(), buffer);
  return (String)buffer;
-}
+}//---------------------------------------------------------------------------------------------------------------------
+
 void connectWifi() {
-//------------------
+//----------------------------------------------------------------------------------------------------------------------
   //if (SSID.equals(""))
    String s = findWifi();
 
   if (!SSID.equals("")) {
-    DEBUG_OUT.println("versuche zu verbinden mit "); DEBUG_OUT.println(SSID);
+    DEBUG_OUT.print("[WiFi] try to connect to "); DEBUG_OUT.println(SSID);
     //while (WiFi.status() != WL_CONNECTED) {
     WiFi.begin (SSID, SSID_PASSWORD);
     int versuche = 20;
@@ -121,42 +119,41 @@ void connectWifi() {
     if (WiFi.status() == WL_CONNECTED) {
       char buffer[30];
       IP2string (WiFi.localIP(), buffer);
-      String out = "[WiFi]Verbunden; meine IP:" + String (buffer);
+      String out = "[WiFi] connected; my IP:" + String (buffer);
       DEBUG_OUT.println (out);
     }
     else
-      DEBUG_OUT.println("keine Verbindung mit SSID "); DEBUG_OUT.println(SSID);
+      DEBUG_OUT.print("[WiFi] NO connection with SSID "); DEBUG_OUT.println(SSID);
   }
   else SSID="";  //toe
-}
-
+}//---------------------------------------------------------------------------------------------------------------------
 
 boolean setupWifi () {
-//------------------  
+//----------------------------------------------------------------------------------------------------------------------
   int count=WIFIConnect;//5;
   
   while (count-- && (WiFi.status() != WL_CONNECTED))
   { 
     connectWifi();
 
-    if (WiFi.status() == WL_CONNECTED)    {DEBUG_OUT.print("SetupWifi Connected:"); DEBUG_OUT.println(WiFi.status());}
-    else {DEBUG_OUT.print("SetupWifi NOT Connected:"); DEBUG_OUT.println(WiFi.status()); }
+    if (WiFi.status() == WL_CONNECTED)    {DEBUG_OUT.print("[WiFi] Connected:"); DEBUG_OUT.println(WiFi.status());}
+    else {DEBUG_OUT.print("[WiFi] NOT Connected:"); DEBUG_OUT.println(WiFi.status()); }
   }   
   if (WiFi.status()== WL_CONNECTED) return true;
   else return false;
  
-}
-
+}//---------------------------------------------------------------------------------------------------------------------
 
 boolean checkWifi() {
-//---------------
+//----------------------------------------------------------------------------------------------------------------------
   if (WiFi.status()== WL_CONNECTED) return true;
   else { 
-    DEBUG_OUT.println(F("CheckWifi not Connected"));
+    DEBUG_OUT.println(F("[WiFi] CheckWifi: not Connected"));
      //toe setupWifi();
     return false;
   } 
-}
+}//----------------------------------------------------------------------------------------------------------------------
+
 
 
 
@@ -183,14 +180,15 @@ bool    isDayofDaylightChange (time_t local_t);
 
 
 void _setSyncInterval (long intervall) {
-//----------------------------------------  
+//----------------------------------------------------------------------------------------------------------------------
   SYNCINTERVALL = intervall;
   setSyncInterval (intervall);
-}
+}//----------------------------------------------------------------------------------------------------------------------
+
 
 void setupClock() {
-//-----------------
-  DEBUG_OUT.println ("Setup Clock ");
+//----------------------------------------------------------------------------------------------------------------------
+  DEBUG_OUT.println ("[CLOCK] Setup ");
   WiFi.hostByName (TIMESERVER_NAME,timeServer); // at this point the function works
 
   Udp.begin(localPort);
@@ -212,13 +210,13 @@ void setupClock() {
   //sprintf (buf, ": %02d:%02d:%02d", hour(no), minute(no), second(no));
   DEBUG_OUT.print (": got ");
   DEBUG_OUT.println (getDateTimeStr());
-}
+}//---------------------------------------------------------------------------------------------------------------------
+
 
 //*-------- NTP code ----------*/
 
-
 time_t getNtpTime() {
-//-------------------
+//----------------------------------------------------------------------------------------------------------------------
   sendNTPpacket(timeServer); // send an NTP packet to a time server
   //uint32_t beginWait = millis();
   //while (millis() - beginWait < 1500) {
@@ -254,11 +252,11 @@ time_t getNtpTime() {
     versuch++;
   }
   return 0;
-}
+}//---------------------------------------------------------------------------------------------------------------------
 
 // send an NTP request to the time server at the given address
 void sendNTPpacket(IPAddress& address) {
-//------------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   memset(packetBuf, 0, NTP_PACKET_SIZE);  // set all bytes in the buffer to 0
   // Initialize values needed to form NTP request
   packetBuf[0] = B11100011;   // LI, Version, Mode
@@ -275,29 +273,31 @@ void sendNTPpacket(IPAddress& address) {
   Udp.write(packetBuf,NTP_PACKET_SIZE);
   Udp.endPacket();
 
-}
+}//---------------------------------------------------------------------------------------------------------------------
 
 int getTimeTrials = 0;
 
 bool isValidDateTime (time_t no) {
-  return (year(no) > 2020 && year(no) < 2038);  
-}
+//----------------------------------------------------------------------------------------------------------------------
+  return (year(no) > 2020 && year(no) < 2038);
+}//----------------------------------------------------------------------------------------------------------------------
+
 
 bool isDayofDaylightChange (time_t local_t) {
-//-----------------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   int jahr  = year  (local_t);
   int monat = month (local_t);
   int tag   = day   (local_t);
   bool ret = ( (monat ==3 && tag == (31 - (5 * jahr /4 + 4) % 7)) || 
                (monat==10 && tag == (31 - (5 * jahr /4 + 1) % 7)));
-  DEBUG_OUT.print ("isDayofDaylightChange="); DEBUG_OUT.println (ret); 
+  //DEBUG_OUT.print ("isDayofDaylightChange="); DEBUG_OUT.println (ret);
   return ret;
-}
+}//----------------------------------------------------------------------------------------------------------------------
 
 // calculates the daylight saving time for middle Europe. Input: Unixtime in UTC (!)
 // übernommen von Jurs, see : https://forum.arduino.cc/index.php?topic=172044.msg1278536#msg1278536
 time_t offsetDayLightSaving (uint32_t local_t) {
-//--------------------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   int monat = month (local_t);
   if (monat < 3 || monat > 10) return 0; // no DSL in Jan, Feb, Nov, Dez
   if (monat > 3 && monat < 10) return 1; // DSL in Apr, May, Jun, Jul, Aug, Sep
@@ -317,11 +317,10 @@ time_t offsetDayLightSaving (uint32_t local_t) {
   else
     return 0;
     */
-}
-
+}//----------------------------------------------------------------------------------------------------------------------
 
 time_t getNow () {
-//---------------
+//----------------------------------------------------------------------------------------------------------------------
   time_t jetzt = now();
   while (!isValidDateTime(jetzt) && getTimeTrials < 10)  { // ungültig, max 10x probieren
     if (getTimeTrials) {
@@ -338,33 +337,31 @@ time_t getNow () {
   }
   //return jetzt + offsetDayLightSaving(jetzt)*SECS_PER_HOUR;
   return jetzt;
-}
-
+}//----------------------------------------------------------------------------------------------------------------------
 
 char _timestr[24];
 
 char* getNowStr (time_t no = getNow()) {
-//------------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   sprintf (_timestr, "%02d:%02d:%02d", hour(no), minute(no), second(no));
   return _timestr;  
-}
+}//----------------------------------------------------------------------------------------------------------------------
 
 char* getTimeStr (time_t no = getNow()) {
-//------------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   return getNowStr (no);
-}
+}//----------------------------------------------------------------------------------------------------------------------
 
 char* getDateTimeStr (time_t no) {
-//------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   sprintf (_timestr, "%04d-%02d-%02d+%02d:%02d:%02d", year(no), month(no), day(no), hour(no), minute(no), second(no));
   return _timestr;  
 }
 
 char* getDateStr (time_t no) {
-//------------------------------
+//----------------------------------------------------------------------------------------------------------------------
   sprintf (_timestr, "%04d-%02d-%02d", year(no), month(no), day(no));
   return _timestr;  
-}
-
+}//----------------------------------------------------------------------------------------------------------------------
 
 #endif
