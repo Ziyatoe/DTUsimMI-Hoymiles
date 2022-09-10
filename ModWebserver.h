@@ -26,7 +26,7 @@ ESP8266WebServer server (WEBSERVER_PORT);
 
 String getMyStyle(String myStyle){
         myStyle = "<style>";
-        myStyle += "#myT {font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;<!--width: 100%;-->}";
+        myStyle += "#myT {font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;width: 50%;}";
         myStyle += "#myT td,#myT th {border:1px solid #ddd;padding:8px;}";
         myStyle += "#myT th {padding-top:4px;padding-bottom:4px;text-align:left;background-color:#04AA6D;color:white;}";
         myStyle += "h1,h2,h3,h4,h5,h6{font-family:sans-serif;color:maroon;border-bottom:1px solid rgb(200, 200, 200);}";
