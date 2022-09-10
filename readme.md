@@ -70,3 +70,4 @@ Please SEE the issues !!!
 - a lot of enhancements
 - more serial commands for inverter, type 1 help on console
 - mqtt reconnect
+- JSON to mqtt
