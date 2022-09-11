@@ -137,7 +137,7 @@ inline static void dumpData(uint8_t *p, int len) {
 //------------------------------------------------------------------------------------------------
   while (len--){
     if (*p < 16)
-      DEBUG_OUT.printf("%c","0");
+      DEBUG_OUT.printf("%c",'0');
     DEBUG_OUT.printf("%x",*p++);
   }
   DEBUG_OUT.printf("%c",BLANK);
