@@ -94,7 +94,7 @@ static char       MQTTclientid[] = "MYDTU";
 //    DO YOU KNOW WHAT YOU ARE DOING, DONT'YOU????
 //=== define your ADVANCED configuration================================================================================
 
-static bool DEBUG_RCV_DATA = false;      // output all rcv data on serial monitor
+static bool DEBUG_RX_DATA = false;      // output all rcv data on serial monitor
 static bool DEBUG_TX_DATA  = false;      // output all tx data on serial monitor
 static bool CHECK_CRC      = true;       // without crc, we get more data but they may be wrong, must be checked
 static bool INTERRUPT      = false;      // with or without interrupt
@@ -114,8 +114,8 @@ uint8_t PA_LEVEL    = RF24_PA_LOW;   // define PA LEVEL on NRF24  <<<<<<<<<<<<<<
 #define ZEXPUPDATETICK         (60*milisek)    //60sek update zeroexport
 #define FIXLIMITTICK        (ZEXPUPDATETICK*8) // ca.5 min to set the fix limit again, just don't rely on chance
 #define TXTIMER             250                //send request on every TXTIMER, better you do not change it
-#define TIMEOUTRXACK        (10*milisek)       //10sek RxAck timeout
-#define TIMERPVCHECK        (90*milisek)      //120sek PV check timeout
+#define TIMEOUTRXACK        (20*milisek)      //10sek RxAck timeout  //todo changed 20
+#define TIMERPVCHECK        (60*milisek)      //60sek PV check timeout
 #define AFTERHH 17                            //hh, after this hour, the inverter wont be under MINPOWER
 
 // zeroexport .................................................................................
@@ -168,8 +168,9 @@ uint64_t WR1_RADIO_ID = Serial2RadioID (SerialWR);
 
 #define REFRESH 30  //http REFRESH
 // Geo location ========================================================================================
-#define  geoBreite  MY_BREITE				// <<<<<<<<<<<<<<<<<<<<<<< secrets.h
-#define  geoLaenge  MY_LAENGE				// <<<<<<<<<<<<<<<<<<<<<<< secrets.h
+#define  geoBreite  MY_LATITUDE				// <<<<<<<<<<<<<<<<<<<<<<< secrets.h
+#define  geoLaenge  MY_LONGITUDE			// <<<<<<<<<<<<<<<<<<<<<<< secrets.h
+#define  TIMEOFFSET 0                        //winter/sommer
 
 
 

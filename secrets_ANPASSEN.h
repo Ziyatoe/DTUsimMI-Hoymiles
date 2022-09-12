@@ -17,7 +17,7 @@ Configuration are in Settings.h and secrets.h !!
 #define MY_MI_WR    0x106112345670ULL
 #define MY_SSID "mySSID"
 #define MY_WIFIPW "myPW"
-#define MY_BREITE  11.2866
-#define MY_LAENGE  3.3416
+#define MY_LATITUDE  11.2866  //breite
+#define MY_LONGITUDE  3.3416  //laengengrad
 
 #endif //__SECRETS_H

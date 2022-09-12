@@ -38,15 +38,17 @@ static float   GridPower     = 0;
     static const int    ANZAHL_VALUES         = 8;
     static float        VALUES[4][ANZAHL_VALUES] = {};
     static const char   *CHANNEL_NAMES[ANZAHL_VALUES]
-       = {"PanelNr   ",
-          "P [W]  ",
-          "Udc [V]",
-          "Idc [A]",
-          "E [Wh] ",
-          "Status ",
-          "FCnt   ",
-          "FCode  "};
+       = {"PanelNr ",
+          "P [W]   ",
+          "Udc [V] ",
+          "Idc [A] ",
+          "E [Wh]  ",
+          "Status  ",
+          "FCnt    ",
+          "FCode   "};
 #endif
+
+static int XtimeB = 0; //how many times do the esp boot
 
 #endif __GLOBALS_H
 

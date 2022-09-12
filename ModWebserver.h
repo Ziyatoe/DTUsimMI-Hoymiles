@@ -22,11 +22,12 @@ Configuration are  in Settings.h and secrets.h !!
 #include "Settings.h"
 #include "Globals.h"
 
+
 ESP8266WebServer server (WEBSERVER_PORT);
 
 String getMyStyle(String myStyle){
         myStyle = "<style>";
-        myStyle += "#myT {font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;width: 50%;}";
+        myStyle += "#myT {font-family: Arial, Helvetica, sans-serif;border-collapse: collapse;width:50%;}";
         myStyle += "#myT td,#myT th {border:1px solid #ddd;padding:8px;}";
         myStyle += "#myT th {padding-top:4px;padding-bottom:4px;text-align:left;background-color:#04AA6D;color:white;}";
         myStyle += "h1,h2,h3,h4,h5,h6{font-family:sans-serif;color:maroon;border-bottom:1px solid rgb(200, 200, 200);}";
@@ -51,8 +52,8 @@ void handleHelp () {
     String out = "<html><head><title>Hoylmoly MI-DTU / Help</title></head><body>";
 
     out += getMyStyle(htmlStyle);
- //   out += "<h5>Hoylmoly Version " + String(VERSION) + " started at " + String(STARTTIME) +"</h5><br><br><br>";
-    out += "<p style='font-family:Arial, Helvetica, sans-serif;'>Hoylmoly Version"+String(VERSION)+"started:"+STARTTIME+"</p>";
+ //   out += "<h5>Hoylmoly Version " + String(VERSION) + " started on " + String(STARTTIME) +"</h5><br><br><br>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif;'>Hoylmoly Version:"+String(VERSION)+" started on "+STARTTIME+"</p>";
 
     out += "<table id='myT'>";
     out += "<tr><th>url</th><th>what</th></tr>";
@@ -61,8 +62,8 @@ void handleHelp () {
     out += "<tr><td>:[port+1]/update</td><td>OTA update firmware</td></tr>";
     out += "<tr><td>/reboot</td><td>reboot DTU</td></tr>";
 
-    out += "<tr><th>Config params</th><th>on/off</th></tr>";
-    out += "<tr><td>DEBUG_RCV_DATA</td><td>"+ String(DEBUG_RCV_DATA) + "</td></tr>";
+    out += "<tr><th>Configuration parameter</th><th>on/off</th></tr>";
+    out += "<tr><td>DEBUG_RCV_DATA</td><td>"+ String(DEBUG_RX_DATA) + "</td></tr>";
     out += "<tr><td>DEBUG_TX_DATA</td><td>"+ String(DEBUG_TX_DATA) + "</td></tr>";
     out += "<tr><td>WITHWIFI</td><td>"+ String(WITHWIFI) + "</td></tr>";
     out += "<tr><td>ZEROEXP</td><td>"+ String(ZEROEXP) + "</td></tr>";
@@ -128,7 +129,7 @@ void handleRoot() {
       }
     out += "</table>";
 
-    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> started:"+STARTTIME+"<br>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> started on "+STARTTIME+" /"+String(XtimeB)+"<br>";
     out += "now&nbsp"+String((is_Day)?"its day time":"its night time")+"</p>";
     out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> url/help<br>url/reboot<br>url:[port+1]/update OTA</p>";
 

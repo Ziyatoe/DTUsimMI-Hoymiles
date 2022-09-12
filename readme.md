@@ -38,7 +38,7 @@ If you change the topics, be sure change the PV numbers everywhere!
 Define mostly everything in settings.h and secrets.h 
 
 - Runs also as NRF24-Sniffer (adr 0x00aa, 0x0055, listen everything) if defined.
-- Output on HTTP and on serial monitor, if defined
+- Output on HTTP and serial monitor, if defined
 - Controlling over several serial commands 
 - sends all data to a mqtt broker, if defined
 
@@ -70,4 +70,4 @@ Please SEE the issues !!!
 - a lot of enhancements
 - more serial commands for inverter, type 1 help on console
 - mqtt reconnect
-- JSON to mqtt
+- JSON string to mqtt

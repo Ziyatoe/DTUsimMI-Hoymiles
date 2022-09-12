@@ -33,12 +33,12 @@ String findWifi () {
   String best_ssid = "";
   int32_t best_rssi = -100;
   
-  DEBUG_OUT.println(F("[WiFi] Starting scan..."));
+  DEBUG_OUT.println(F("[WiFi] Starting scan AP's ..."));
 
   scanResult = WiFi.scanNetworks(/*async=*/false, /*hidden=*/true);
 
   if (scanResult == 0) {
-    DEBUG_OUT.println(F("[WiFi] NO WLans"));
+    DEBUG_OUT.printf("[WiFi] NO WLans\r\n");
   } else if (scanResult > 0) {
     DEBUG_OUT.printf(PSTR("[WiFi] %d WLan found:\r\n"), scanResult);
 
@@ -74,16 +74,16 @@ String findWifi () {
       }
     }
   } else {
-    DEBUG_OUT.printf("[WiFi] scan error %d\r\n", scanResult);
-  }
+      DEBUG_OUT.printf("[WiFi] scan error %d\r\n", scanResult);
+    }
 
   if (! best_ssid.equals("")) {
     SSID = best_ssid;
     DEBUG_OUT.printf ("[WiFi] best radio: %s\r\n", SSID.c_str());
     return SSID;
   }
-  else
-    {SSID = "";
+  else {
+    SSID = "";
     return "";
   }
 }//----------------------------------------------------------------------------------------------------------------------
@@ -93,12 +93,13 @@ void IP2string (IPAddress IP, char * buf) {
   sprintf (buf, "%d.%d.%d.%d", IP[0], IP[1], IP[2], IP[3]);
 }//----------------------------------------------------------------------------------------------------------------------
 
-String PrintMyIP (void){
-//----------------------------------------------------------------------------------------------------------------------
- char buffer[30];
- IP2string (WiFi.localIP(), buffer);
- return (String)buffer;
-}//---------------------------------------------------------------------------------------------------------------------
+//todo clean up imho useless //String PrintMyIP (void){
+//String PrintMyIP (void){
+////----------------------------------------------------------------------------------------------------------------------
+// char buffer[30];
+// IP2string (WiFi.localIP(), buffer);
+//// return (String)buffer;
+//}//---------------------------------------------------------------------------------------------------------------------
 
 void connectWifi() {
 //----------------------------------------------------------------------------------------------------------------------
@@ -106,24 +107,27 @@ void connectWifi() {
    String s = findWifi();
 
   if (!SSID.equals("")) {
-    DEBUG_OUT.print("[WiFi] try to connect to "); DEBUG_OUT.println(SSID);
+//todo    DEBUG_OUT.print("[WiFi] try to connect to "); DEBUG_OUT.println(SSID);
+    DEBUG_OUT.printf("[WiFi] try to connect to %s\r\n",SSID.c_str());
+
     //while (WiFi.status() != WL_CONNECTED) {
     WiFi.begin (SSID, SSID_PASSWORD);
     int versuche = 20;
     while (WiFi.status() != WL_CONNECTED && versuche > 0) {
       delay(1000); //toe 1000
       versuche--;
-      DEBUG_OUT.print(versuche); DEBUG_OUT.print(' ');
+      DEBUG_OUT.printf(" %i",versuche);
     }
     //}
     if (WiFi.status() == WL_CONNECTED) {
       char buffer[30];
       IP2string (WiFi.localIP(), buffer);
-      String out = "[WiFi] connected; my IP:" + String (buffer);
-      DEBUG_OUT.println (out);
+//todo      String out = "[WiFi] connected; my IP:" + String (buffer);
+//      DEBUG_OUT.println (out);
+      DEBUG_OUT.printf("\r\n[WiFi] connected; my IP: %s\r\n", buffer);
     }
     else
-      DEBUG_OUT.print("[WiFi] NO connection with SSID "); DEBUG_OUT.println(SSID);
+      DEBUG_OUT.printf("\r\n[WiFi] NO connection with SSID %s\r\n",SSID.c_str());
   }
   else SSID="";  //toe
 }//---------------------------------------------------------------------------------------------------------------------
@@ -136,8 +140,8 @@ boolean setupWifi () {
   { 
     connectWifi();
 
-    if (WiFi.status() == WL_CONNECTED)    {DEBUG_OUT.print("[WiFi] Connected:"); DEBUG_OUT.println(WiFi.status());}
-    else {DEBUG_OUT.print("[WiFi] NOT Connected:"); DEBUG_OUT.println(WiFi.status()); }
+    if (WiFi.status() == WL_CONNECTED)  DEBUG_OUT.printf("[WiFi] Connected:%i\r\n",WiFi.status());
+    else DEBUG_OUT.printf("[WiFi] Not Connected:%i\r\n",WiFi.status());
   }   
   if (WiFi.status()== WL_CONNECTED) return true;
   else return false;
@@ -204,6 +208,7 @@ void setupClock() {
   //lastClock = now();
   //Serial.print("[NTP] get time from NTP server ");
   getNow();
+  getNow(); // todo : it gets some time year 2036 ??????????? get it again, might be useful?
   //char buf[20];
   DEBUG_OUT.print ("[NTP] get time from NTP server ");
   DEBUG_OUT.print (timeServer);
@@ -365,3 +370,4 @@ char* getDateStr (time_t no) {
 }//----------------------------------------------------------------------------------------------------------------------
 
 #endif
+

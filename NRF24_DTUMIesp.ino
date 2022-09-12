@@ -61,10 +61,10 @@ static uint64_t       UpdateTxMsgTick=0;
 static uint64_t       UpdateIPServicesTick=0;
 static uint64_t       UpdateZeroExpTick=0;
 
-static uint64_t RxAckTimeOut = 100;   // at begin, milli sek. wenn zu lange nichts kommt, müssen wir wechseln;
+static uint64_t RxAckTimeOut = 100;   //milli sek.; search RxCH faster at the begin
 static uint64_t timeLastPacket = millis();
-static uint64_t timeLastAck    = RxAckTimeOut*4; //at the start
-static uint64_t timeCheckPV = 100;
+static uint64_t timeLastRxAck    = RxAckTimeOut*4; //at the start
+static uint64_t timeCheckPV = 100;    //milli sek.; search PV's faster at the begin
 // Set up nRF24L01 radio on SPI bus plus CE/CS pins
 // If more than one RF24 unit is used the another CS pin than 10 must be used
 // This pin is used hard coded in SPI library
@@ -94,7 +94,7 @@ static char cStr[100];
 static bool DataOK = false;
 static uint8_t pvCnt[4]={0,0,0,0};
 static float TotalP[5]={0,0,0,0,0}; //0 is total power, 1-4 are 4 PV power
-
+static bool isOnTx = false;
 #ifdef ESP8266
   #include "ModWebserver.h"
   //#include "Sonne.h"
@@ -121,6 +121,7 @@ static uint8_t WhichMI = 0;//index inververter model
 static int MAXPOWER = 0;
 static int MINPOWER = 0;
 static int MIportPower=0;
+static byte FACTOR = 3; //todo zeroexport tuning
 
 
 #ifdef ESP8266
@@ -169,7 +170,7 @@ bool RFRxPacket(void){
       if (packetLen > MAX_RF_PAYLOAD_SIZE)
         packetLen = MAX_RF_PAYLOAD_SIZE;
       radioDTU.read(p->packet, packetLen);
-      //DEBUG_OUT.println(F(" payload ok"));
+
       packetBuffer.pushFront(p);
       if (!p) DEBUG_OUT.printf("%sRFRxPacket:%s packetbuffer pushFront full\r\n",LON,LOFF);
       else sts = true;
@@ -192,7 +193,7 @@ bool RFRxPacket(void){
   }//while
   isRxIrq = false;
   return sts;
- // DEBUG_OUT.println(F("RFRxPacket END"));
+
 }//----RFRxPacket-----------------------------------------------------------------------------------
 
 #ifdef ESP8266
@@ -318,7 +319,7 @@ bool GetMIModel(void){  //probably we might need it more than once
 
       MAXPOWER = MItype[WhichMI].NrPorts * MIportPower; // rated power of inverter
       MINPOWER = int(MAXPOWER / 10); //below 10%, the inverter will be shut down
-      DEBUG_OUT.printf("Inverter defined as %s, MAXPOWER %i, MINPOWER %i\r\n",MIWHAT, MAXPOWER,MINPOWER);
+      DEBUG_OUT.printf("Inverter should be a %s, with MAXPOWER %iW, MINPOWER %iW\r\n",MIWHAT, MAXPOWER,MINPOWER);
       return true;
       }
   else{
@@ -330,14 +331,14 @@ bool GetMIModel(void){  //probably we might need it more than once
 
 void setup(void) {
 //---------------------------------------------------------------------------------------
-
+  XtimeB++;
   DEBUG_OUT.begin(SER_BAUDRATE);
   delay(5000);
   DEBUG_OUT.flush();
   DEBUG_OUT.printf(".....................\r\n");
   DEBUG_OUT.printf("Hoylmoly DTU for MI \r\n");
   DEBUG_OUT.printf(".....................\r\n");
-  DEBUG_OUT.printf("Begin Setup  wait....\r\n");
+  DEBUG_OUT.printf("Setup DTU,  wait....\r\n");
 
   while (! GetMIModel())
     delay (4000);
@@ -360,7 +361,7 @@ void setup(void) {
             setupUpdateByOTA();
           #endif
           calcSunUpDown (getNow());
-          is_Day = isDayTime(0);
+          is_Day = isDayTime(TIMEOFFSET);
           //DEBUG_OUT.printf ("it is %s \r\n",(is_Day?"day time":"night time"));
           //hmPackets.SetUnixTimeStamp (getNow());
          }
@@ -382,7 +383,7 @@ void setup(void) {
       STARTTIME=(String)getDateStr(getNow())+" "+(String)getTimeStr(getNow());
 
   DEBUG_OUT.printf("\r\n\r\nMicroinverter is %s%s with %i PV's%s, starting at ",LON,MIWHAT,NRofPV,LOFF);
-  DEBUG_OUT.println(STARTTIME); //cant print (String)STARTTIME with printf???
+  DEBUG_OUT.printf("\r\n%s",STARTTIME.c_str());
   TxLimitSts = false;
 
   DEBUG_OUT.printf("Hoylmoly Version %s \r\n",VERSION);
@@ -398,17 +399,13 @@ static void RFTxPacket(uint64_t dest, uint8_t *buf, uint8_t len) {
 
   radioDTU.flush_tx();
 
-  if (DEBUG_TX_DATA) {
-      DEBUG_OUT.printf("RFTxPacket: CH%02i ",TxCH);
-       //packet buffer to output
-      for (uint8_t i = 0; i < len; i++){
-        if (buf[i]==0){DEBUG_OUT.printf("%s","00");}
-        else { if (buf[i]<0x10) {DEBUG_OUT.printf("%c","0");}
-             DEBUG_OUT.printf("%x",buf[i]);
-             }
-        }
-      DEBUG_OUT.println();
+  if (DEBUG_TX_DATA) {     //packet buffer to output
+    DEBUG_OUT.printf("RFTxPacket: CH%02i ",TxCH);
+    for (uint8_t i = 0; i < len; i++){
+      DEBUG_OUT.printf("%02X",buf[i]);
       }
+    DEBUG_OUT.printf("\r\n");
+  }
   //if(INTERRUPT) DISABLE_EINT;//?????
   radioDTU.stopListening(); //:::::::::::::::0
   radioDTU.setCRCLength(RF24_CRC_16);
@@ -436,22 +433,29 @@ static void RFTxPacket(uint64_t dest, uint8_t *buf, uint8_t len) {
 
 }//----RFTxPacket-------------------------------------------------------------------------------------------------------
 
+
 void HopCH(void){
 //----------------------------------------------------------------------------------------------------
+  static uint64_t LastTMO = 0;
 
-      if ( (millis() - timeLastAck) > RxAckTimeOut){  //hop RxCH when timeout RXack
-         RxChId++;
-         if (RxChId >= std::size(channels) )
-           RxChId = 0;
-         RxCH = channels[RxChId];
-         timeLastAck = millis();
-         RxAckTimeOut = 100; //try to find out a channel faster
-         }
-     //tx allways hopping
-     TxChId++;
-     if (TxChId >= std::size(channels) )
-       TxChId = 0;
-     TxCH = channels[TxChId];
+  if ( (millis() - timeLastRxAck) > RxAckTimeOut){  //hop RxCH when timeout RXack
+    if (RxAckTimeOut == TIMEOUTRXACK ) { //todo rxacktmo
+      DEBUG_OUT.printf  ("%sHopCH%s: RxAck timeout RxCH%i millis:%lu lastAck:%lu  ",LON,LOFF, RxCH,millis(),timeLastRxAck);
+      DEBUG_OUT.printf  ("RxAckTMO:%lu\r\n",RxAckTimeOut);
+    }
+
+    RxChId++;
+    if (RxChId >= std::size(channels) )
+      RxChId = 0;
+    RxCH = channels[RxChId];
+    timeLastRxAck = millis(); //reset it
+    RxAckTimeOut = 150; //todo it was 100  , try faster to find out a channel
+  }
+  //tx allways hopping
+  TxChId++;
+  if (TxChId >= std::size(channels) )
+    TxChId = 0;
+  TxCH = channels[TxChId];
 
 }//----HopCH----------------------------------------------------------------------------------------
 
@@ -459,21 +463,23 @@ void HopCH(void){
 void SerialCmdHandle(void){
 //----------------------------------------------------------------------------------------------------------------------
     switch (SerCmd){
-        case 1:
-          DEBUG_OUT.printf("\r\n\r\n\r\n");
+        case 1: //Output HELP, serial commands
+          DEBUG_OUT.printf("\r\n\r\nSerial Commands:\r\n");
           DEBUG_OUT.printf("1:help\t\t\t2:Status\r\n");
           DEBUG_OUT.printf("3:PA_LOW\t\t4:PA_HIGH\t\t5:PA_MAX\r\n");
           DEBUG_OUT.printf("6:Sniffer\t\t7:ZeroEx\t\t8:OnlyRX\r\n");
           DEBUG_OUT.printf("9:ShowTX\t\t10:Wifi\t\t\t11:CRC\r\n");
           DEBUG_OUT.printf("12:reboot\t\t13:ShowRX\t\t14:IRQ\r\n");
-          DEBUG_OUT.printf("15:LIMITabsORpr\t\t16:boot MI\t\t17:WRinfo\r\n");
+          DEBUG_OUT.printf("15:LIMITabsORpr\t\t16:boot MI\t\t17:InverterInfo\r\n");
+          DEBUG_OUT.printf("18:ShutdownInv\t\t19:\t\t20:\r\n");
+          DEBUG_OUT.printf("22-29:ZexpFactor\t\t\t\t\r\n");
           DEBUG_OUT.printf("100-1999:limiting(W)\r\n\r\n\r\n"); //ToDo help
           SerCmd=0; //stop command
         break;
         case 2:
           DEBUG_OUT.printf("\r\n\r\nVersion\t %s started at ",VERSION);
-          DEBUG_OUT.println(STARTTIME); //cant print string with printf???
-          DEBUG_OUT.printf("DEBUG_RCV_DATA \t%i\r\n",DEBUG_RCV_DATA);
+          DEBUG_OUT.printf(STARTTIME.c_str()); //todo ,cant print (String) with printf??? yes we can use c_str()
+          DEBUG_OUT.printf("DEBUG_RX_DATA \t%i\r\n",DEBUG_RX_DATA);
           DEBUG_OUT.printf("DEBUG_TX_DATA \t%i\r\n",DEBUG_TX_DATA);
           switch (PA_LEVEL){
               case 1:DEBUG_OUT.printf("PA_LEVEL_LOW \t%i\r\n",PA_LEVEL);
@@ -483,6 +489,7 @@ void SerialCmdHandle(void){
               case 3:DEBUG_OUT.printf("PA_LEVEL_MAX \t%i\r\n",PA_LEVEL);
               break;
               }
+          DEBUG_OUT.printf("Boot seq \t%i\r\n",XtimeB);
           DEBUG_OUT.printf("WITHWIFI \t%i\r\n",WITHWIFI);
           DEBUG_OUT.printf("ZEROEXP \t%i\r\n",ZEROEXP);
           DEBUG_OUT.printf("INTERRUPT \t%i\r\n",INTERRUPT);
@@ -496,7 +503,10 @@ void SerialCmdHandle(void){
           #ifdef WITH_OTA
             DEBUG_OUT.printf("WITH_OTA \t1\r\n");
           #endif
-          DEBUG_OUT.print("MY IP \t"); DEBUG_OUT.println(PrintMyIP());DEBUG_OUT.println();//cant print (String) with printf???
+          DEBUG_OUT.printf("ZEXPFACTOR \t%i\r\n",FACTOR);
+          static char buffer[30];
+          IP2string (WiFi.localIP(), buffer);
+          DEBUG_OUT.printf("IP\t\t%s\r\n",buffer);
           SerCmd=0; //stop command
         break;
         case 3:
@@ -554,13 +564,13 @@ void SerialCmdHandle(void){
               DEBUG_OUT.printf("CMD CHECK_CRC %i\r\n",CHECK_CRC);
               SerCmd=0; //stop command
         break;
-        case 12:
+        case 12: //reboot MI
               setup();
               SerCmd=0; //stop command
         break;
         case 13:
-              DEBUG_RCV_DATA = (DEBUG_RCV_DATA) ? 0 : 1;
-              DEBUG_OUT.printf("CMD DEBUG_RCV_DATA %i\r\n",DEBUG_RCV_DATA);
+              DEBUG_RX_DATA = (DEBUG_RX_DATA) ? 0 : 1;
+              DEBUG_OUT.printf("CMD DEBUG_RX_DATA %i\r\n",DEBUG_RX_DATA);
               SerCmd=0; //stop command
         break;
         case 14:
@@ -577,11 +587,14 @@ void SerialCmdHandle(void){
               TxLimitSts = false;
               SerCmd=0; //stop command
         break;
-        case 16: //boot_mi (0x51) (55AA)  will be send in RF RFisTime2Send
+        case 16: //boot_mi cmd:0x51 (55AA)  will be send over RFisTime2Send to inverter
         break;
-        case 17: //wrinfo  0x0f           will be send in RF RFisTime2Send
+        case 17: //wrinfo  cmd:0x0f           will be send over RFisTime2Send to inverter
         break;
-        case 18 ... 99: // this are empty, until now
+        case 18: //inverter shutdown cmd:0x51 (0xAA55)     will be send in RF RFisTime2Send to inverter
+        break;
+        case 21 ... 29: FACTOR = SerCmd - 20;
+        case 30 ... 99: // this are empty, until now
         break;
         case 100 ... 1999:  //100-1999 limit watt will be send in RF RFisTime2Send over SerCmd
         break;
@@ -601,6 +614,7 @@ void RFisTime2Send (void) {
   uint64_t dest = WR1_RADIO_ID;
   uint8_t UsrData[10];
   char Cmd = 0;
+  int Limit2Tx = 0;
 
   if (millis() >= UpdateTxMsgTick) { //is time to tx commands to inverter
     UpdateTxMsgTick += TXTIMER;
@@ -624,43 +638,53 @@ void RFisTime2Send (void) {
 
     if (TxLimitSts) { //zeropower limiting
       Cmd=0x51;
-      DEBUG_OUT.printf("%sRFisTime2Send:%s CMD:%03X CH:%i Sts:%i Setting limit:%i\r\n",LON,LOFF,Cmd, TxCH,TxLimitSts,Limit);
+      if (!isOnTx) DEBUG_OUT.printf("%sRFisTime2Send:%s CMD:%03X(0x5A5A) CH:%i set limit:%i\r\n",LON,LOFF,Cmd, TxCH,Limit);
+
       if (LIMITABSOLUT){  //set SubCmd and  UsrData for limiting
-          UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]=0; //absolut watt limiting,UsrData[2] doesn't matter what
-          UsrData[3]=((Limit*10) >> 8) & 0xFF;   UsrData[4]= (Limit*10)  & 0xFF;   //WR needs 1 dec point= zB 100.1 W, :-)
-          size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,5);
+      // ---- todo check this with other MIs, my MI needs this after 500W, it seems to be not linear OR its a bug here ???
+         if (Limit > 450) { Limit2Tx = 500 + ((Limit-500)*FACTOR); }
+         else { Limit2Tx=Limit; }
+      // ---- todo check this with other MIs, my MI needs it after 500W, it seems to be not linear OR its a bug here???
+
+         UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]=0; //absolut watt limiting,UsrData[2] doesn't matter what
+          //todo TxLimit hiByte/lowByte, is it ok?
+         UsrData[3]=((Limit2Tx*10) >> 8) & 0xFF;   UsrData[4]= (Limit2Tx*10)  & 0xFF;   //WR needs 1 dec point= zB 100.3 W, :-)
+         size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,5);
       }
       else {
         UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]= Limit; // % of rated power limiting
         size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,3);
       }
-
+    isOnTx = true;
     }
     else
       if (SerCmd){ //if a serial command waiting,  after ack the command, SerCmd will be set to NULL
         switch (SerCmd){ //SrCmd, commands to Tx
            case 16: //boot wr  0x55AA
               Cmd=0x51;
-              DEBUG_OUT.printf("%sRFisTime2Send:%s CH:%i CMD 0x%X WR boot Req\r\n",LON,LOFF, TxCH,Cmd);
+              if (!isOnTx) DEBUG_OUT.printf("%sRFisTime2Send:%s CMD 0x%X(0x55AA) CH:%i Inverter boot request\r\n",LON,LOFF,Cmd,TxCH);
               UsrData[0]=0x55;UsrData[1]=0xAA;
               size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,2);
            break;
-           case 17: //request WR info
+           case 17: //request Inverter info
               Cmd=0x0f;
               UsrData[0]=0x01;
-              DEBUG_OUT.printf("%sRFisTime2Send:%s CH:%i CMD 0x%X Sending WRInfo Req\r\n",LON,LOFF, TxCH,Cmd);
+              if (!isOnTx) DEBUG_OUT.printf("%sRFisTime2Send:%s CMD 0x%X CH:%i  Sending InverterInfo request\r\n",LON,LOFF, Cmd, TxCH);
               size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,1);
+            break;
+            case 18:
+              Cmd=0x51; //todo request Inverter shutdown, but inverter does nothing, still producing???
+              if (!isOnTx) DEBUG_OUT.printf("%sRFisTime2Send:%s CMD 0x%X(0xAA55) CH:%i Inverter shut down request\r\n",LON,LOFF, Cmd, TxCH);
+              UsrData[0]=0xAA;UsrData[1]=0x55;
+              size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,2);
             break;
             case 21://WR_HW_SW  doesnt work              Cmd=0x06;
             case 100 ... 1999: //Limiting over serial command
                  TxLimitSts = true;
-                 DEBUG_OUT.printf("%sRFisTime2Send:%s Limiting over serial command\r\n",LON,LOFF, TxCH,Cmd);
+                 DEBUG_OUT.printf("%sRFisTime2Send:%s CMD 0x%X CH:%i set limiting over serial command\r\n",LON,LOFF, Cmd, TxCH);
             break;
-            break;
- //           default:
-//              UsrData[0]=0x0;//set SubCmd and  UsrData
-//              size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, MIDataCMD, UsrData,1);
         }
+        isOnTx = true; // we are sending, not need to show it continuously
       }
       else {//no SerCmd or Limiting,  usual operation : request WR data
         TxLimitSts = false;
@@ -696,7 +720,7 @@ void RFDumpRxPacket(NRF24_packet_t *p, uint8_t payloadLen) {
 
     if (remain < 32) {
       dumpData(&p->packet[11], remain);
-      printf_P(PSTR("%04X "), crc);
+      DEBUG_OUT.printf("%04X ", crc);
       if (((crc >> 8) != p->packet[payloadLen + 2]) || ((crc & 0xFF) != p->packet[payloadLen + 3]))
         DEBUG_OUT.printf("%i",0);
       else
@@ -748,20 +772,21 @@ void SerialRxHandle(void){ //read from serial for WR control cmd's
     else {
       SerialIn[InCnt]=0;   //eofl
       temporary = atoi(SerialIn);
-      DEBUG_OUT.printf("%sSerialIn:%s %s TempCmd:%i\r\n",LON,LOFF,SerialIn,temporary);
+      SerCmd = temporary;
+      DEBUG_OUT.printf("%sSerialIn:%s %s int:%i SerCmd:%i\r\n",LON,LOFF,SerialIn,temporary,SerCmd);
 
       if ((temporary >1999) || (temporary < 100)){  //other cmds. implemented, request WR info etc.
         SerCmd = temporary;      //this is a serial command
         TxLimitSts = false;      //no Limit send needed
         SerialCmdHandle();
-        DEBUG_OUT.printf("%sSerialIn:%s %s SerCmd:%i \r\n",LON,LOFF,SerialIn,SerCmd);
-      }
+        }
       else{ //this is a limiting command 100 to 1999 as watt
         Limit = temporary; //Limit is 100-1999 watt  here
+
         if (!LIMITABSOLUT)
            Limit = round(Limit *100 / MAXPOWER); //Limit is % of rated power now
-        DEBUG_OUT.printf("%sSerialIn:%s %s SerCmd:%i Limiting\r\n",LON,LOFF,SerialIn,SerCmd);
         SerCmd = temporary; //this is a Limiting command, will be handled in RFisTime2Send()
+        DEBUG_OUT.printf("%sSerialIn:%s %s SerCmd:%i Limit:%i\r\n",LON,LOFF,SerialIn,SerCmd,Limit);
       }
       InCnt=0;
     }
@@ -953,21 +978,25 @@ void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
         pvCnt[0]=pvCnt[1]=pvCnt[2]=pvCnt[3]=0; //reset PV;sts
       }
       if ( (p->packet[11] == 0x55) && (p->packet[12] == 0xAA)) { //boot inverter
-        DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK boot inverter(0x555AA), CMD:%X RxCH:%i\r\n",LON,LOFF, p->packet[2],RxCH);
+        DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK boot inverter(0x55AA), CMD:%X RxCH:%i\r\n",LON,LOFF, p->packet[2],RxCH);
+      }
+      if ( (p->packet[11] == 0xAA) && (p->packet[12] == 0x55)) { //shutdown inverter
+        DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK shutdown inverter(0xAA55), CMD:%X RxCH:%i\r\n",LON,LOFF, p->packet[2],RxCH);
       }
       SerCmd = 0; //ack is here, stop sending
-      timeLastAck = millis();
+      timeLastRxAck = millis();
       RxAckTimeOut = TIMEOUTRXACK;
+      isOnTx = false;
     break;
 //    case 0x82:0x82 Gongfa also doesnt work
 //    break;
 //    case 0x86: //RF SW HW  ? DOESNT work on MI's!!
 //    break;
-    case 0x8f: //ACK WRInfo from CMD:0x0f
-      DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK WRInfo(0x0F),CMD:%x RxCH:%i\r\n",LON,LOFF,p->packet[2],RxCH);
+    case 0x8f: //ACK InverterInfo from CMD:0x0f
+      DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK InverterInfo(0x0F),CMD:%x RxCH:%i\r\n",LON,LOFF,p->packet[2],RxCH);
       DEBUG_OUT.printf("\r\n%sMI %x:%x:%x:%x ",LON,p->packet[7],p->packet[8],p->packet[9],p->packet[10]);
 
-      switch (p->packet[11]){
+      switch (p->packet[11]){  //RX from inverter
         case 0:// Command Receipt - First Frame
           DEBUG_OUT.printf("USFWBLD:%i.%i ",p->packet[12],p->packet[13]);
           DEBUG_OUT.printf("APFWBLD:%i.%i ",p->packet[14],p->packet[15]);
@@ -980,7 +1009,7 @@ void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
           DEBUG_OUT.printf(" %s%s",a,LOFF); //hh:mm
           ackMIinfo [0]= true;
         break;
-        case 1:
+        case 1:// Command Receipt - second Frame
           DEBUG_OUT.printf("HWPN:%x.%x.%x.%x ",p->packet[12],p->packet[13],p->packet[14],p->packet[15]);
           DEBUG_OUT.printf("HWFBTLmValue:%x.%x ",p->packet[16],p->packet[17]);
           DEBUG_OUT.printf("HWFBReSPRT:%x.%x ",p->packet[18],p->packet[19]);
@@ -989,48 +1018,48 @@ void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
           DEBUG_OUT.printf(" MatchAPPFWPN:%x.%x.%x.%x%s",p->packet[24],p->packet[25],p->packet[26],p->packet[27],LOFF);//HHMM
           ackMIinfo [1]= true;
         break;
-        case 2:
+        case 2:// Command Receipt - third Frame
           DEBUG_OUT.printf("APPFW_MINVER:%x.%x ",p->packet[12],p->packet[13]);
           DEBUG_OUT.printf("HWINFOadr:%x.%x ",p->packet[14],p->packet[15]);
           DEBUG_OUT.printf("PNInfoCRC:%x.%x %s",p->packet[16],p->packet[17],LOFF);
           ackMIinfo [2]= true;
         break;
+        default:
+          DEBUG_OUT.printf(" this frame is not known:%i",p->packet[11]);
       }
-      DEBUG_OUT.printf(" frame:%i\r\n\r\n",p->packet[11]);
-//      if ( ackMIinfo[0] && ackMIinfo[1] && (ackMIinfo[2]) ){ //never get the frame 3????
-      SerCmd = 0; //ack is here, stop sending CMD: WRInfo after all 3 frames are received
-//         ackMIinfo[0] = ackMIinfo[1] = ackMIinfo[2]= false;
-//         }
-
-      timeLastAck = millis();
+      DEBUG_OUT.printf(" frame:%i %s\r\n\r\n",p->packet[11],LOFF);
+      //todo      if ( ackMIinfo[0] && ackMIinfo[1] && (ackMIinfo[2]) ){ //never got the frame 3, why????
+          SerCmd = 0; //ack is here, stop sending CMD: InverterInfo after all 3 frames are received
+      //    ackMIinfo[0] = ackMIinfo[1] = ackMIinfo[2]= false;
+      //   }
+      timeLastRxAck = millis(); RxAckTimeOut = TIMEOUTRXACK;
+      isOnTx = false;
     break;
 
     case 0xB6:    //4 ports
     case 0xB7:    //4 ports
     case 0xB8:    //4 ports
     case 0xB9:    //4 ports
-      timeLastAck = millis();
-      RxAckTimeOut = TIMEOUTRXACK;
+      timeLastRxAck = millis(); RxAckTimeOut = TIMEOUTRXACK;
       MI1500DataMsg(p);
     break;
 
     case 0x89:    //1-2 ports
     case 0x91:    //2 ports
-      timeLastAck = millis();
-      RxAckTimeOut = TIMEOUTRXACK;
+      timeLastRxAck = millis(); RxAckTimeOut = TIMEOUTRXACK;
       MI600DataMsg(p);
     break;
 
     case 0x88:    //1-2 ports
     case 0x92:    //2 ports
-      timeLastAck = millis();
-      RxAckTimeOut = TIMEOUTRXACK;
+      timeLastRxAck = millis(); RxAckTimeOut = TIMEOUTRXACK;
       MI600StsMsg(p);
     break;
     default:
        DEBUG_OUT.printf("%sMIAnalysePacket:%s new CMD  %x \t",LON,LOFF, p->packet[2]);
        RFDumpRxPacket (p, payloadLen); //output received data
     }
+
 }//--MIAnalysePacket----------------------------------------------------------------------------------
 
 void RFRxAnalyse(void) {
@@ -1057,7 +1086,7 @@ void RFRxAnalyse(void) {
     // Add one byte and one bit for 9-bit packet control field
     crc = crc16((uint8_t *)&p->packet[0], sizeof(p->packet), crc, 7, BYTES_TO_BITS(payloadLen + 1) + 1);
 
-    if ( (DEBUG_RCV_DATA) || (SNIFFER) )
+    if ( (DEBUG_RX_DATA) || (SNIFFER) )
       RFDumpRxPacket (p, payloadLen); //output received data
 
     if (CHECK_CRC) {
@@ -1102,6 +1131,8 @@ void DoZeroExport(void){
    DTSU Export power must be PLUS
    DTSU Import power must be MINUS
 */
+  int OverP;
+
   if (millis() < UpdateZeroExpTick){//wait for zeroexport timer
     DEBUG_OUT.printf("%sZeroExport:%s timer, not yet !\r\n",LON,LOFF);
     return; //not in first 60 sek
@@ -1122,30 +1153,35 @@ void DoZeroExport(void){
     return;
   }
   if ((!TxLimitSts) && SmartMeterOk){  //we allow to send and smartmeter is alive
-    if (abs (GridPower) > TOLERANCE) { // || (abs (Limit-OldLimit) > TOLERANCE )){//if change more than 15 watt
+    if (abs (GridPower) > TOLERANCE) { // if it changes more than TOLERANCE watt
       if (GridPower >0){ //Export P is PLUS on DTSU666, MI producing too much power, need less power
-          Limit= PMI - abs(GridPower);  //327-(296)
+          Limit= PMI - abs(GridPower);  //327-abs(296)
       }
       else { //Import P is MINUS on DTSU666, MI producing too low power, needing more power
           Limit= PMI+ abs(GridPower); //327+abs(-296)
       }
-      int consumP= abs(GridPower) + PMI;
+
       if ((HH >= AFTERHH)&&(Limit <= MINPOWER)) {
         Limit = MINPOWER+20; //watt, do not shut down inverter after 17h
         DEBUG_OUT.printf("%sZeroExport:%s after %ih limit is %i \r\n",LON,LOFF,AFTERHH,(int)Limit);
         }
+      // ToDo  -----zero export fine tuning--------------------------------------------------------
+      //     (GridPower) ? (OverP = PMI - abs(GridPower)):(OverP= PMI + abs(GridPower)); below better readable
+      if ( GridPower < 0) { OverP= PMI + abs(GridPower); }
+      else { OverP = PMI - abs(GridPower); }
 
-      if ( (MINPOWER >= consumP) && (consumP >= (int)(MINPOWER/2)) ) {
+      if ( (MINPOWER >= OverP) && (OverP >= (int)(MINPOWER/2)) ) {
           Limit = MINPOWER+10; //do not shutdown inverter when more than half minP is used
-          DEBUG_OUT.printf("%sZeroExport:%s Consum:%i is > MINP/2:%i, Limit: %i \r\n",LON,LOFF, (int)consumP,(int)(MINPOWER/2),(int)Limit);
+          DEBUG_OUT.printf("%sZeroExport:%s OverP:%i > MINP/2:%i, Limit is min.: %i \r\n",LON,LOFF, (int)OverP,(int)(MINPOWER/2),(int)Limit);
         }
-      else DEBUG_OUT.printf("%sZeroExport:%s not doing this, Consum:%i is  MINP/2:%i, Limit: %i \r\n",LON,LOFF, (int)consumP,(int)(MINPOWER/2),(int)Limit);
+      //else DEBUG_OUT.printf("%sZeroExport:%s not doing this (OverP:%i <  MINP/2:%i), Limit: %i \r\n",LON,LOFF, (int)OverP,(int)(MINPOWER/2),(int)Limit);
+      // ToDo  -----zero export fine tuning--------------------------------------------------------
 
       if (Limit >= MAXPOWER) Limit = MAXPOWER; //Limit is still in watt here
 
-      if (!LIMITABSOLUT)  //if we want the % of rated power limiting
+      if (!LIMITABSOLUT)  //if we want to have the percent % of rated power limiting
           Limit = round(Limit *100 / MAXPOWER); //Limit is now % of rated power
-      // ToDo  -----zero export fine tuning--------------------------------------------------------
+
       if (!TxLimitSts) TxLimitSts = true; //we can send
       DEBUG_OUT.printf("%sZeroExport:%s GridPower out of tolerance %i W, Limiting %i\r\n",LON,LOFF, (int)GridPower,(int)Limit);
     }
@@ -1185,7 +1221,7 @@ void loop(void) {
          setup();
        }
        if (millis() >= UpdateIPServicesTick){//not overload the web&mqtt server
-         is_Day = isDayTime(0);
+         is_Day = isDayTime(TIMEOFFSET);
          if (!is_Day) {//at night, the website should not show old data
             for (byte pv=0; pv < NRofPV; pv++)
               for (byte i = 0; i < (ANZAHL_VALUES); i++)
@@ -1225,3 +1261,17 @@ void loop(void) {
   #endif //esp8266
 
 }//-----loop-----------------------------------------------------------------------------------------
+// todo
+// todo wr status
+/*
+PORT_STATUS =
+["no data?",
+"?",
+"?gesehen",
+"Normal", (3)
+"?",
+"MPPT port not connected", (5)
+"?gesehen",
+"?",
+"Reduced"] (8)
+*/
