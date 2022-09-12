@@ -17,7 +17,7 @@
  * See http://arduino.cc/forum/index.php/topic,54795.0.html
  */
 
-/* modification by Ziyat T.
+/* modification made by Ziyat T.
 for the Project initiated here: https://www.mikrocontroller.net/topic/525778
 */
 
@@ -52,23 +52,16 @@ const uint8_t num_channels = 126;
 //uint8_t weak[num_channels];
 uint64_t add;
 
-
-// define WR address straight and reversed
-//uint64_t address =0x6370716001;//   6071706301; //WR
-//uint64_t address2=0x7222841201;//  0x1284227201; //DTU
-////uint64_t address2=0x6071706301;
-//int width = 5;
-
-
 // define preamble as address to sniff any traffic
 uint64_t address2=0x0055;
 uint64_t address=0x00aa;
 int width = 2;
-//#define ALLCH
+
+//#define ALLCH   //define if you want to sniff all channels
 #ifdef ALLCH
     int rcvChannels[125];  //2400 to 2525 MHz (MegaHz). The nRF24L01 channel spacing is 1 Mhz which gives 125 possible channels numbered 0 .. 124
 #else
-    int rcvChannels[]  = {1,3,6,9, 11, 23,35, 40, 61,70, 75};//{1, 3, 6, 9, 11, 23, 40, 61, 75};
+    int rcvChannels[]  = {1,3,6,9, 11, 23,35, 40, 61,70, 75};//{1, 3, 6, 9, 11, 23, 40, 61, 75}; //use this for hoymiles DTU/MI
 #endif
 
 int     NRofCH = std::size(rcvChannels);//sizeof(rcvChannels)/sizeof(rcvChannels[0]);  
