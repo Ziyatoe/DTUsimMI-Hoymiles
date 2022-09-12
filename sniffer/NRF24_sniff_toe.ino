@@ -7,19 +7,14 @@
  */
 
 /**
- * Channel scanner
- *
- * Example to detect interference on the various channels available.
- * This is a good diagnostic tool to check whether you're picking a
- * good channel for your application.
- *
- * Inspired by cpixip.
- * See http://arduino.cc/forum/index.php/topic,54795.0.html
+ * NRF24 Channel scanner
  */
 
-/* modification made by Ziyat T.
-for the Project initiated here: https://www.mikrocontroller.net/topic/525778
-*/
+/**** 
+* modification made by Ziyat T.
+* for the Project initiated here: https://www.mikrocontroller.net/topic/525778
+****/
+
 
 #include <SPI.h>
 #include <nRF24L01.h>
