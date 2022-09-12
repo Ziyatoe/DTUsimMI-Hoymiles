@@ -46,14 +46,19 @@ void returnFail(String msg) {
     server.send(500, F("text/plain"), msg + "\r\n");
   }
 
-void handleHelp () {
+void handleHelp () { //todo
 //---------------------------------------------------------------------------------------------------------
     String htmlStyle;
-    String out = "<html><head><title>Hoylmoly MI-DTU / Help</title></head><body>";
-
+    String out = "<html><head><title>Hoylmoly MI-DTU / Help</title>";
     out += getMyStyle(htmlStyle);
- //   out += "<h5>Hoylmoly Version " + String(VERSION) + " started on " + String(STARTTIME) +"</h5><br><br><br>";
-    out += "<p style='font-family:Arial, Helvetica, sans-serif;'>Hoylmoly Version:"+String(VERSION)+" started on "+STARTTIME+"</p>";
+    out += "</head><body>";
+
+    out += "<h2>Hoylmoly DTU</h2> "+String(VERSION);
+    out += "<h3>Micro Inverter "+ String(MIWHAT) + "</h3>";
+
+
+    out += "<p style='font-family:Arial, Helvetica, sans-serif;'>started on "+STARTTIME+" /"+String(XtimeB)+"<br>"+"</p>";
+
 
     out += "<table id='myT'>";
     out += "<tr><th>url</th><th>what</th></tr>";
@@ -106,12 +111,13 @@ void handleRoot() {
     out += getMyStyle(htmlStyle);
     out += "</head><body>";
 
-    out += "<h2>Hoylmoly Micro-Inverter "+ String(MIWHAT) + "</h2>";
+    out += "<h2>Hoylmoly DTU</h2> "+String(VERSION);
+    out += "<h3>Micro Inverter "+ String(MIWHAT) + "</h3>";
     out += "<h5>"+(String)getDateStr(getNow()) + " "+(String)getTimeStr(getNow()) + "</h5>";
     out += "<table id='myT'>";
-    out += "<tr><th>MI P</th><th>-Imp/Exp+</th><th>Limit</th><th>U AC</th><th>Freq</th><th>Temp</th></tr>";
-    out += "<tr><td>"+String(PMI) +" W</td><td>"+String(GridPower) + " W</td><td>"+String(LIM) + "</td><td>"+String(U_AC);
-    out += " V</td><td>"+String(F_AC) + " Hz</td><td>"+String(TEMP) + " C</td></tr>";
+    out += "<tr><th>MI P[W]</th><th>-Imp/Exp+[W]</th><th>Limit</th><th>U AC[V]</th><th>Freq[Hz]</th><th>Temp[C]</th></tr>";
+    out += "<tr><td>"+String(PMI) +"</td><td>"+String(GridPower) + "</td><td>"+String(LIM) + "</td><td>"+String(U_AC);
+    out += "</td><td>"+String(F_AC) + "</td><td>"+String(TEMP) + "</td></tr>";
     out += "</table>";
 
     out += "<table id='myT'>";
