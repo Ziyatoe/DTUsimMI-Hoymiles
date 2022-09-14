@@ -47,8 +47,12 @@ static float   GridPower     = 0;
           "FCnt    ",
           "FCode   "};
 #endif
+static char IpStr[20];
 
 static int XtimeB = 0; //how many times do the esp boot
+static uint16_t TXSTATISTIC = 0;
+static uint16_t RXMISTATISTIC = 0;
+
 
 #endif __GLOBALS_H
 

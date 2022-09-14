@@ -121,7 +121,6 @@ static uint8_t WhichMI = 0;//index inververter model
 static int MAXPOWER = 0;
 static int MINPOWER = 0;
 static int MIportPower=0;
-static byte FACTOR = 3; //todo zeroexport tuning
 
 
 #ifdef ESP8266
@@ -386,7 +385,7 @@ void setup(void) {
   DEBUG_OUT.printf("\r\n%s",STARTTIME.c_str());
   TxLimitSts = false;
 
-  DEBUG_OUT.printf("Hoylmoly Version %s \r\n",VERSION);
+  DEBUG_OUT.printf(", Hoylmoly Version %s \r\n",VERSION);
   DEBUG_OUT.printf("Setup finished ------------------------------------------------------\r\n\r\n");
   DEBUG_OUT.printf("%sType 1 and return for HELP%s\r\n\r\n",LON,LOFF);
   DEBUG_OUT.printf("%sif you do not receive anything, change PA_LEVEL first%s\r\n\r\n",LON,LOFF);
@@ -416,12 +415,12 @@ static void RFTxPacket(uint64_t dest, uint8_t *buf, uint8_t len) {
   radioDTU.setChannel(TxCH);
   //if(INTERRUPT) ENABLE_EINT;//?????
   uint8_t res = radioDTU.write(buf, len);
+  TXSTATISTIC++;
   //if (DEBUG_TX_DATA)
      //DEBUG_OUT.printf("..... res: %i\r\n", res);
-
-   //radioDTU.print_status(radioDTU.get_status());
-
+  //radioDTU.print_status(radioDTU.get_status());
   // Try to avoid zero payload acks (has no effect)
+
   radioDTU.openWritingPipe(DUMMY_RADIO_ID);
   radioDTU.setAutoAck(false);
   radioDTU.setRetries(0, 0);
@@ -472,13 +471,15 @@ void SerialCmdHandle(void){
           DEBUG_OUT.printf("12:reboot\t\t13:ShowRX\t\t14:IRQ\r\n");
           DEBUG_OUT.printf("15:LIMITabsORpr\t\t16:boot MI\t\t17:InverterInfo\r\n");
           DEBUG_OUT.printf("18:ShutdownInv\t\t19:\t\t20:\r\n");
-          DEBUG_OUT.printf("22-29:ZexpFactor\t\t\t\t\r\n");
+          DEBUG_OUT.printf("22-29:\t\t\t\t\r\n");
           DEBUG_OUT.printf("100-1999:limiting(W)\r\n\r\n\r\n"); //ToDo help
           SerCmd=0; //stop command
         break;
         case 2:
           DEBUG_OUT.printf("\r\n\r\nVersion\t %s started at ",VERSION);
-          DEBUG_OUT.printf(STARTTIME.c_str()); //todo ,cant print (String) with printf??? yes we can use c_str()
+          DEBUG_OUT.printf(STARTTIME.c_str());
+          DEBUG_OUT.printf("\r\nTXSTATISTIC \t%i\r\n",TXSTATISTIC);
+          DEBUG_OUT.printf("RXMISTATISTIC \t%i\r\n",RXMISTATISTIC);
           DEBUG_OUT.printf("DEBUG_RX_DATA \t%i\r\n",DEBUG_RX_DATA);
           DEBUG_OUT.printf("DEBUG_TX_DATA \t%i\r\n",DEBUG_TX_DATA);
           switch (PA_LEVEL){
@@ -503,7 +504,7 @@ void SerialCmdHandle(void){
           #ifdef WITH_OTA
             DEBUG_OUT.printf("WITH_OTA \t1\r\n");
           #endif
-          DEBUG_OUT.printf("ZEXPFACTOR \t%i\r\n",FACTOR);
+
           static char buffer[30];
           IP2string (WiFi.localIP(), buffer);
           DEBUG_OUT.printf("IP\t\t%s\r\n",buffer);
@@ -593,7 +594,7 @@ void SerialCmdHandle(void){
         break;
         case 18: //inverter shutdown cmd:0x51 (0xAA55)     will be send in RF RFisTime2Send to inverter
         break;
-        case 21 ... 29: FACTOR = SerCmd - 20;
+        case 21 ... 29:
         case 30 ... 99: // this are empty, until now
         break;
         case 100 ... 1999:  //100-1999 limit watt will be send in RF RFisTime2Send over SerCmd
@@ -641,14 +642,10 @@ void RFisTime2Send (void) {
       if (!isOnTx) DEBUG_OUT.printf("%sRFisTime2Send:%s CMD:%03X(0x5A5A) CH:%i set limit:%i\r\n",LON,LOFF,Cmd, TxCH,Limit);
 
       if (LIMITABSOLUT){  //set SubCmd and  UsrData for limiting
-      // ---- todo check this with other MIs, my MI needs this after 500W, it seems to be not linear OR its a bug here ???
-         if (Limit > 450) { Limit2Tx = 500 + ((Limit-500)*FACTOR); }
-         else { Limit2Tx=Limit; }
-      // ---- todo check this with other MIs, my MI needs it after 500W, it seems to be not linear OR its a bug here???
-
-         UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]=0; //absolut watt limiting,UsrData[2] doesn't matter what
-          //todo TxLimit hiByte/lowByte, is it ok?
-         UsrData[3]=((Limit2Tx*10) >> 8) & 0xFF;   UsrData[4]= (Limit2Tx*10)  & 0xFF;   //WR needs 1 dec point= zB 100.3 W, :-)
+         UsrData[0]=0x5A;UsrData[1]=0x5A;UsrData[2]=(int((Limit*100)/MAXPOWER)); //absolut watt limiting,UsrData[2] doesn't matter what???
+        //5A	5A	5D=93%	15CC=558.0W  from MI600
+        //5A	5A	55=85%	1402=512.2W  from MI600
+         UsrData[3]=((Limit*10) >> 8) & 0xFF;   UsrData[4]= (Limit*10)  & 0xFF;   //with 1 dec point= zB 120.3 W > 0x4b3, :-)
          size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,5);
       }
       else {
@@ -659,7 +656,7 @@ void RFisTime2Send (void) {
     }
     else
       if (SerCmd){ //if a serial command waiting,  after ack the command, SerCmd will be set to NULL
-        switch (SerCmd){ //SrCmd, commands to Tx
+        switch (SerCmd){ //Serial commands to Tx
            case 16: //boot wr  0x55AA
               Cmd=0x51;
               if (!isOnTx) DEBUG_OUT.printf("%sRFisTime2Send:%s CMD 0x%X(0x55AA) CH:%i Inverter boot request\r\n",LON,LOFF,Cmd,TxCH);
@@ -678,7 +675,7 @@ void RFisTime2Send (void) {
               UsrData[0]=0xAA;UsrData[1]=0x55;
               size = hmPackets.GetCmdPacket((uint8_t *)&sendBuf, dest >> 8, DTU_RADIO_ID >> 8, Cmd, UsrData,2);
             break;
-            case 21://WR_HW_SW  doesnt work              Cmd=0x06;
+            case 21://WR_HW_SW (0x6), Congfa(0x2)  doesnt work
             case 100 ... 1999: //Limiting over serial command
                  TxLimitSts = true;
                  DEBUG_OUT.printf("%sRFisTime2Send:%s CMD 0x%X CH:%i set limiting over serial command\r\n",LON,LOFF, Cmd, TxCH);
@@ -988,10 +985,10 @@ void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
       RxAckTimeOut = TIMEOUTRXACK;
       isOnTx = false;
     break;
-//    case 0x82:0x82 Gongfa also doesnt work
-//    break;
-//    case 0x86: //RF SW HW  ? DOESNT work on MI's!!
-//    break;
+    //    case 0x82:0x82 Gongfa also doesnt work
+    //    break;
+    //    case 0x86: //RF SW HW  ? DOESNT work on MI's!!
+    //    break;
     case 0x8f: //ACK InverterInfo from CMD:0x0f
       DEBUG_OUT.printf("%sMIAnalysePacket:%s ACK InverterInfo(0x0F),CMD:%x RxCH:%i\r\n",LON,LOFF,p->packet[2],RxCH);
       DEBUG_OUT.printf("\r\n%sMI %x:%x:%x:%x ",LON,p->packet[7],p->packet[8],p->packet[9],p->packet[10]);
@@ -1025,7 +1022,8 @@ void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
           ackMIinfo [2]= true;
         break;
         default:
-          DEBUG_OUT.printf(" this frame is not known:%i",p->packet[11]);
+          DEBUG_OUT.printf("frame %i is not known:%s%x.%x.%x.%x.%x.%x.%x.%x.%x%s",p->packet[11],LOFF, p->packet[12],p->packet[13],p->packet[14],p->packet[15],
+          p->packet[16],p->packet[17],p->packet[18],p->packet[19],p->packet[20]);
       }
       DEBUG_OUT.printf(" frame:%i %s\r\n\r\n",p->packet[11],LOFF);
       //todo      if ( ackMIinfo[0] && ackMIinfo[1] && (ackMIinfo[2]) ){ //never got the frame 3, why????
@@ -1059,7 +1057,7 @@ void MIAnalysePacket(NRF24_packet_t *p,uint8_t payloadLen){
        DEBUG_OUT.printf("%sMIAnalysePacket:%s new CMD  %x \t",LON,LOFF, p->packet[2]);
        RFDumpRxPacket (p, payloadLen); //output received data
     }
-
+  RXMISTATISTIC++;
 }//--MIAnalysePacket----------------------------------------------------------------------------------
 
 void RFRxAnalyse(void) {
@@ -1124,6 +1122,7 @@ void RFRxAnalyse(void) {
 //  packetBuffer.popBack();??????????????
 }//-----RFRxAnalyse-------------------------------------------------------------------------------
 
+static int fineT= 0;
 
 void DoZeroExport(void){
 //-------------------------------------------------------------------------------------------------
@@ -1131,6 +1130,7 @@ void DoZeroExport(void){
    DTSU Export power must be PLUS
    DTSU Import power must be MINUS
 */
+
   int OverP;
 
   if (millis() < UpdateZeroExpTick){//wait for zeroexport timer
@@ -1153,41 +1153,51 @@ void DoZeroExport(void){
     return;
   }
   if ((!TxLimitSts) && SmartMeterOk){  //we allow to send and smartmeter is alive
-    if (abs (GridPower) > TOLERANCE) { // if it changes more than TOLERANCE watt
-      if (GridPower >0){ //Export P is PLUS on DTSU666, MI producing too much power, need less power
-          Limit= PMI - abs(GridPower);  //327-abs(296)
+
+
+    if (abs (GridPower) > TOLERANCE) { // if its more than TOLERANCE we have to do zeroexport thing
+      // ToDo  -----zero export fine tuning--------------------------------------------------------
+      if (GridPower > 0){ //Export P is PLUS on DTSU666, MI producing too much power, need less power
+          Limit= PMI - abs(GridPower) + (fineT-=15);  //we are decreasing ca 1%, till we get the tolerance
+          OverP = PMI - abs(GridPower);  //find over production
+
       }
       else { //Import P is MINUS on DTSU666, MI producing too low power, needing more power
-          Limit= PMI+ abs(GridPower); //327+abs(-296)
+          Limit= PMI+ abs(GridPower) + (fineT+=15); ////we are increasing ca 1%, till we get the tolerance
+          OverP = PMI + abs(GridPower);
       }
+      // ToDo  -----zero export fine tuning--------------------------------------------------------
 
-      if ((HH >= AFTERHH)&&(Limit <= MINPOWER)) {
-        Limit = MINPOWER+20; //watt, do not shut down inverter after 17h
+      //do not shut down inverter after 17h
+      if ((HH >= AFTERHH)&&(Limit <= MINPOWER)) { //after 17h
+        Limit = MINPOWER+20;
         DEBUG_OUT.printf("%sZeroExport:%s after %ih limit is %i \r\n",LON,LOFF,AFTERHH,(int)Limit);
-        }
-      // ToDo  -----zero export fine tuning--------------------------------------------------------
-      //     (GridPower) ? (OverP = PMI - abs(GridPower)):(OverP= PMI + abs(GridPower)); below better readable
-      if ( GridPower < 0) { OverP= PMI + abs(GridPower); }
-      else { OverP = PMI - abs(GridPower); }
-
-      if ( (MINPOWER >= OverP) && (OverP >= (int)(MINPOWER/2)) ) {
-          Limit = MINPOWER+10; //do not shutdown inverter when more than half minP is used
+        fineT = 0;
+      }
+      else
+          //do not shutdown inverter when more than half MINPOWER is used
+        if ( (MINPOWER >= OverP) && (OverP >= (int)(MINPOWER/2)) ) {
+          Limit = MINPOWER+10;
           DEBUG_OUT.printf("%sZeroExport:%s OverP:%i > MINP/2:%i, Limit is min.: %i \r\n",LON,LOFF, (int)OverP,(int)(MINPOWER/2),(int)Limit);
+          fineT=0;
         }
-      //else DEBUG_OUT.printf("%sZeroExport:%s not doing this (OverP:%i <  MINP/2:%i), Limit: %i \r\n",LON,LOFF, (int)OverP,(int)(MINPOWER/2),(int)Limit);
-      // ToDo  -----zero export fine tuning--------------------------------------------------------
 
-      if (Limit >= MAXPOWER) Limit = MAXPOWER; //Limit is still in watt here
-
-      if (!LIMITABSOLUT)  //if we want to have the percent % of rated power limiting
+      if (Limit >= MAXPOWER){
+        fineT=0;
+        Limit = MAXPOWER;
+      }
+      //Limit is still as watt here
+      if (!LIMITABSOLUT){  //if we want to have the percent % of rated power limiting
           Limit = round(Limit *100 / MAXPOWER); //Limit is now % of rated power
-
+          fineT = 0;
+      }
       if (!TxLimitSts) TxLimitSts = true; //we can send
-      DEBUG_OUT.printf("%sZeroExport:%s GridPower out of tolerance %i W, Limiting %i\r\n",LON,LOFF, (int)GridPower,(int)Limit);
+      DEBUG_OUT.printf("%sZeroExport:%s GridPower %iW, out of tolerance, Limiting %i, fineT:%i\r\n",LON,LOFF, (int)GridPower,(int)Limit,fineT);
     }
     else {
+      fineT = 0;
       TxLimitSts = false;
-      DEBUG_OUT.printf("%sZeroExport:%s GridPower inside tolerance %i W, do nothing\r\n",LON,LOFF, (int)GridPower);
+      DEBUG_OUT.printf("%sZeroExport:%s GridPower %iW, inside tolerance, do nothing, fineT:%i\r\n",LON,LOFF, (int)GridPower,fineT);
     }
     SmartMeterOk = false; //wait again on new data
   }
@@ -1261,8 +1271,12 @@ void loop(void) {
   #endif //esp8266
 
 }//-----loop-----------------------------------------------------------------------------------------
-// todo
+// TODO list
+//----------------------------------
 // todo wr status
+// todo more than 1 inverter
+// todo put the inverter in a class
+
 /*
 PORT_STATUS =
 ["no data?",

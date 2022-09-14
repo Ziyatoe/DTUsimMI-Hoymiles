@@ -53,12 +53,10 @@ void handleHelp () { //todo
     out += getMyStyle(htmlStyle);
     out += "</head><body>";
 
-    out += "<h2>Hoylmoly DTU</h2> "+String(VERSION);
+    out += "<h2>Hoylmoly DTU for MI/TSUN</h2>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'>"+String(VERSION)+"</p>";
     out += "<h3>Micro Inverter "+ String(MIWHAT) + "</h3>";
-
-
     out += "<p style='font-family:Arial, Helvetica, sans-serif;'>started on "+STARTTIME+" /"+String(XtimeB)+"<br>"+"</p>";
-
 
     out += "<table id='myT'>";
     out += "<tr><th>url</th><th>what</th></tr>";
@@ -111,9 +109,11 @@ void handleRoot() {
     out += getMyStyle(htmlStyle);
     out += "</head><body>";
 
-    out += "<h2>Hoylmoly DTU</h2> "+String(VERSION);
+    out += "<h2>Hoylmoly DTU for MI/TSUN</h2>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'>"+String(VERSION)+"</p>";
     out += "<h3>Micro Inverter "+ String(MIWHAT) + "</h3>";
     out += "<h5>"+(String)getDateStr(getNow()) + " "+(String)getTimeStr(getNow()) + "</h5>";
+
     out += "<table id='myT'>";
     out += "<tr><th>MI P[W]</th><th>-Imp/Exp+[W]</th><th>Limit</th><th>U AC[V]</th><th>Freq[Hz]</th><th>Temp[C]</th></tr>";
     out += "<tr><td>"+String(PMI) +"</td><td>"+String(GridPower) + "</td><td>"+String(LIM) + "</td><td>"+String(U_AC);
@@ -135,9 +135,14 @@ void handleRoot() {
       }
     out += "</table>";
 
-    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> started on "+STARTTIME+" /"+String(XtimeB)+"<br>";
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> started on "+STARTTIME+" /"+String(XtimeB)+", ";
     out += "now&nbsp"+String((is_Day)?"its day time":"its night time")+"</p>";
-    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'> url/help<br>url/reboot<br>url:[port+1]/update OTA</p>";
+
+    out += "<p style='font-family:Arial, Helvetica, sans-serif; font-size:10'>";
+    out += "TX statistic:"+String(TXSTATISTIC)+ "<br>RX statistic:"+String(RXMISTATISTIC)+"<br><br>";
+    out += "<a href='http://"+String(IpStr)+"/help' target='_blank'>Help</a><br>";
+    out += "<a href='http://"+String(IpStr)+"/reboot' target='_blank'>Reboot</a><br>";
+    out += "<a href='http://"+String(IpStr)+":81/update' target='_blank'>Update OTA</a></p>";
 
     out += "</body></html>";
     server.send (200, "text/html", out);

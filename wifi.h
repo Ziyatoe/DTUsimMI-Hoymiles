@@ -3,6 +3,7 @@
 
 #include "Settings.h"
 #include "Debug.h"
+#include "Globals.h"
 #ifdef ESP8266
   #include <ESP8266WiFi.h>
   //#include <Pinger.h>       // von url=https://www.technologytourist.com
@@ -120,11 +121,11 @@ void connectWifi() {
     }
     //}
     if (WiFi.status() == WL_CONNECTED) {
-      char buffer[30];
-      IP2string (WiFi.localIP(), buffer);
+
+      IP2string (WiFi.localIP(), IpStr);
 //todo      String out = "[WiFi] connected; my IP:" + String (buffer);
 //      DEBUG_OUT.println (out);
-      DEBUG_OUT.printf("\r\n[WiFi] connected; my IP: %s\r\n", buffer);
+      DEBUG_OUT.printf("\r\n[WiFi] connected; my IP: %s\r\n", IpStr);
     }
     else
       DEBUG_OUT.printf("\r\n[WiFi] NO connection with SSID %s\r\n",SSID.c_str());
@@ -142,7 +143,8 @@ boolean setupWifi () {
 
     if (WiFi.status() == WL_CONNECTED)  DEBUG_OUT.printf("[WiFi] Connected:%i\r\n",WiFi.status());
     else DEBUG_OUT.printf("[WiFi] Not Connected:%i\r\n",WiFi.status());
-  }   
+  }
+
   if (WiFi.status()== WL_CONNECTED) return true;
   else return false;
  

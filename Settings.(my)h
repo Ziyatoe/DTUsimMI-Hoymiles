@@ -44,7 +44,7 @@ Configuration are  in Settings.h and secrets.h !!
 #define DEBUG                    // output all infos on serial monitor, comment it for no infos
 static bool WITHWIFI       = true;      // wifi yes/no
 static bool WITHMQTT       = true;      //do you need mqtt? if yes, may be you want to change the topic names in mqtt.h
-static bool ZEROEXP        = false;     //zeroexport(zeropower)  to the grid
+static bool ZEROEXP        = true;     //zeroexport(zeropower)  to the grid
 /*For zeroexport, it needs a sep. mqtt connection with a topic "ImpExpW", which is the power data,
   readed from a Chint-DTSU (smart meter), see mqtt.h.
   this "ImpExpW" must be readed over a RS485/modbus connection from a Chint-DTSU and must be published
@@ -61,7 +61,7 @@ static int WR_LIMITTED     = 0;         //watt, if not NULL, inverter is permane
 
 // WR Config ..................................................................................
 #define SerialWR  MY_MI_WR	// <<<<<<<<<<<<<<<<<<<<<<< define in secrets.h
-uint8_t NRofPV = 0; //<<<<<<<<<<<< number of PV panels in use (connected) 1-4. (not the number of WR-ports)
+uint8_t NRofPV = 3; //<<<<<<<<<<<< number of PV panels in use (connected) 1-4. (not the number of WR-ports)
                     //assume the ports are connected in order from port1 to port4
                     //we have to know how many PVs are REALLY connected to the WR.
                     //if we know it, we dont have to wait of the not connected ports!
