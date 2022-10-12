@@ -13,6 +13,7 @@ This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverte
 - MI1500, 3 PV's. 
 - MI600
 - TSUN800 (as MI600), 2 PV's
+- should work with MI300, MI1200 also
 
 Based on the orig. SW from Hubi's earlier stage from this (https://github.com/hm-soft/Hoymiles-DTU-Simulation).
 
