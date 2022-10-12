@@ -25,6 +25,7 @@ immediately!!!
 
 As far as you know what you are doing, you can use this SW.
 -
+You need ArduinoIDE for this skecth!
 
 Runs on ESP8266: wifi, mqtt, shows all data on serial monitor and on web site 
 
