@@ -29,6 +29,8 @@ As far as you know what you are doing, you can use this SW.
 You need ArduinoIDE for this skecth!
 
 Runs on ESP8266: wifi, mqtt, shows all data on serial monitor and on web site 
+-
+Wiring https://github.com/lumapu/ahoy/tree/main/tools/esp8266#wiring-things-up
 
 Runs on Arduino: no wifi, serial monitor shows all data. arduino-ide 2.0.0-rc6 und 1.8.19
 
