@@ -11,7 +11,7 @@ Configuration are  in Settings.h and secrets.h !!
 ------------------------------------------------------------------------------------------------------------------------
 */
 
-#define VERSION "V0.1.9"
+#define VERSION "V0.1.9.3"
 
 
 #include <stdint.h>
@@ -114,8 +114,8 @@ typedef struct MIWR_t{ // define MI type
 #define MI300  0
 #define MI600  1
 #define MI1500 2
-static MIWR_t MItype[3]={{"MI300",1,300}, // define MI type [NRPV,Modell,PortPower], bu sure of index!!
-                         {"MI600",2,300},
+static MIWR_t MItype[3]={{"MI300",1,375}, // define MI type [NRPV,Modell,PortPower], bu sure of index!!
+                         {"MI600",2,375},
                          {"MI1500",4,375}};
 static uint8_t WhichMI = 0;//index inververter model
 static int MAXPOWER = 0;
