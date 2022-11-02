@@ -3,7 +3,7 @@ This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverte
 Based on the orig. SW from Hubi's earlier stage from his (https://github.com/hm-soft/Hoymiles-DTU-Simulation)
 recoded and expanded  for the Hoymiles microinverter family MI, by Ziyat T.
 
-Project initiated here: https://www.mikrocontroller.net/topic/525778
+Project initiated here: https://www.mikrocontroller.net/topic/525778 
 Do not expect any quality from this SW!!!
 
 ------------------------------------------------------------------------------------------------------------------------
