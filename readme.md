@@ -10,8 +10,9 @@ Supported inverters, with serial number begin:
 
 This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverters over RF, tested with:
 
-- MI1500, 3 PV's. 
+- MI1500, 3 and 4 PV's. 
 - MI600
+- MI300
 - TSUN800 (as MI600), 2 PV's
 - should work with MI300, MI1200 also
 
@@ -76,3 +77,6 @@ Please SEE the issues !!!
 - more serial commands for inverter, type 1 help on console
 - mqtt reconnect
 - JSON string to mqtt
+
+>VERSİON "V0.1.9.1"
+-changed max. power of one MI.port
