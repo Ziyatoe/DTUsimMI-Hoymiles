@@ -8,6 +8,8 @@ Supported inverters, with serial number begin:
 - 0x1040xxxxxx,0x1041xxxxxx
 - 0x1060xxxxxx,0x1061xxxxxx
 
+Hoymiles HM inverters are supported in this project:
+https://github.com/lumapu/ahoy/
 
 This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverters over RF, tested with:
 
