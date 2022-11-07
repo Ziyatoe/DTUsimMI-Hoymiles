@@ -1,12 +1,13 @@
-DTU simulator for Hoymiles MI Microinverter over RF (NRF24)
+DTU simulator for Hoymiles MI-Series Microinverter over RF (NRF24)
 -
 
 Supports only ONE inverter!
 
 Supported inverters, with serial number begin:
-- 0x1021xxxxxx
-- 0x1041xxxxxx
-- 0x1061xxxxxx
+- 0x1020xxxxxx,0x1021xxxxxx
+- 0x1040xxxxxx,0x1041xxxxxx
+- 0x1060xxxxxx,0x1061xxxxxx
+
 
 This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverters over RF, tested with:
 
