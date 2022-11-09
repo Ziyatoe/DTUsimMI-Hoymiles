@@ -53,6 +53,9 @@ Define mostly everything in settings.h and secrets.h
 
 Please SEE the issues !!!
 
+NO COMMERCIAL USE !!
+--
+
 >VERSION "V0.1.5"  
 - using secrets.h for SSID,PW etc.
 - stay on same RxCH until no Rx OR gets a rxtimeout
