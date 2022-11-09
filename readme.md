@@ -19,7 +19,7 @@ This software is a QUICK&DIRTY SW for debugging/controlling the Hoymiles inverte
 - TSUN800 (as MI600), 2 PV's
 - should work with MI1200 also
 
-Based on the orig. SW from Hubi's earlier stage from this (https://github.com/hm-soft/Hoymiles-DTU-Simulation).
+Radio, CRC, part of Web based on the orig. SW from Hubi's earlier stage from this (https://github.com/hm-soft/Hoymiles-DTU-Simulation).
 
 Project initiated here: https://www.mikrocontroller.net/topic/525778
 
@@ -82,4 +82,4 @@ Please SEE the issues !!!
 - JSON string to mqtt
 
 >VERSİON "V0.1.9.1"
--changed max. power of one MI.port
+- changed max. power of one MI.port
