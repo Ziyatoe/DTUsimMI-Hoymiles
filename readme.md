@@ -30,16 +30,19 @@ immediately!!!
 
 As far as you know what you are doing, you can use this SW.
 -
-You need ArduinoIDE for this skecth!
+You need ArduinoIDE for this skecth! tested with arduino-ide 2.0.0-rc6 und 1.8.19
+
+-----------------------------------------------------------------------------------------------------
 
 Runs on ESP8266: wifi, mqtt, shows all data on serial monitor and on web site 
 
-Wiring
+Wiring ESP8266 & nRF24L01+
 -
 https://github.com/lumapu/ahoy/blob/main/Getting_Started.md#things-needed
 
+-----------------------------------------------------------------------------------------------------
 
-Runs on Arduino: no wifi, serial monitor shows all data. arduino-ide 2.0.0-rc6 und 1.8.19
+
 
 For zeroexport, it needs a sep. mqtt connection with a topic "ImpExpW" to a Chint-DTSU, see mqtt.h .
 I had to choose the topics so, because of an earlier implementation on
