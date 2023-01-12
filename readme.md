@@ -30,10 +30,10 @@ immediately!!!
 
 As far as you know what you are doing, you can use this SW.
 -
-- You need ArduinoIDE for this skecth! tested with arduino-ide 2.0.0-rc6 und 1.8.19
-- You need configure your Arduino-IDE for ESP8266
-- You need install nrf24 library
-- Keep all source files in same folder
+- you need ArduinoIDE for this skecth! tested with arduino-ide 2.0.0-rc6 und 1.8.19
+- you have to configure your Arduino-IDE for ESP8266
+- you need to install nrf24 library
+- keep all source files in same folder
 - configure secrets.h
 - configure settings.h
 
