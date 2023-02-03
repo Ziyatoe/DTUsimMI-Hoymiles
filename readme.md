@@ -29,8 +29,9 @@ Issues can be reported on  https://www.mikrocontroller.net/topic/525778, but do 
 immediately!!! 
 
 As far as you know what you are doing, you can use this SW. 
-AND READ THE THINGS BELOW BEFORE REQUEST SUPPORT:
--
+
+READ THE THINGS BELOW BEFORE REQUEST SUPPORT:
+
 - you need ArduinoIDE for this skecth! tested with arduino-ide 2.0.0-rc6 und 1.8.19
 - you have to configure your Arduino-IDE for ESP8266
 - you need to install nrf24 library, tested with RF24 lib Version:1.4.5
