@@ -37,8 +37,8 @@ READ THE LINES BELOW BEFORE REQUEST A SUPPORT:
 - you need to install nrf24 library, tested with RF24 lib Version:1.4.5
 - you need to install also ESP8266WiFi 1.0 ,ESP8266WebServer 1.0, ArduinoMqttClient 0.1.5 libs
 - keep all source files in same folder
-- configure secrets.h
-- configure settings.h
+- configure secrets.h, with this config it should run
+- if needed, configure settings.h
 
 
 -----------------------------------------------------------------------------------------------------
