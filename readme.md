@@ -35,6 +35,7 @@ READ THE LINES BELOW BEFORE REQUEST A SUPPORT:
 - you need ArduinoIDE for this skecth! tested with arduino-ide 2.0.0-rc6 und 1.8.19
 - you have to configure your Arduino-IDE for ESP8266
 - you need to install nrf24 library, tested with RF24 lib Version:1.4.5
+- you need to install also ESP8266WiFi 1.0 ,ESP8266WebServer 1.0, ArduinoMqttClient 0.1.5 libs
 - keep all source files in same folder
 - configure secrets.h
 - configure settings.h
