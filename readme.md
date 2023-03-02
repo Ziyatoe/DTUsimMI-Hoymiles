@@ -1,5 +1,6 @@
 DTU simulator for Hoymiles MI-Series Microinverter over RF (NRF24), on ESP8266 & nRF24L01+
 -
+LICENSE : https://creativecommons.org/licenses/by-nc-sa/3.0/de/
 
 Supports only ONE inverter!
 
